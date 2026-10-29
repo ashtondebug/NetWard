@@ -35,6 +35,8 @@ namespace WebBlocker.Filtering
         private readonly long _policyVersion;
         private readonly IProxyDnsResolver _dnsResolver;
         private readonly string _blockedPagePath;
+        private readonly string _timeoutPagePath;
+        private readonly Func<DateTime> _localClock;
         private readonly SemaphoreSlim _clientSlots;
         private readonly ConcurrentDictionary<TcpClient, Task> _connections =
             new ConcurrentDictionary<TcpClient, Task>();
@@ -50,7 +52,9 @@ namespace WebBlocker.Filtering
             string blockedPagePath = null,
             int maximumConcurrentClients = MaximumConcurrentClients,
             AccessEventStore eventStore = null,
-            long policyVersion = 1)
+            long policyVersion = 1,
+            string timeoutPagePath = null,
+            Func<DateTime> localClock = null)
         {
             if (policy == null)
             {
@@ -82,6 +86,8 @@ namespace WebBlocker.Filtering
             _policyVersion = policyVersion;
             _dnsResolver = dnsResolver ?? new SystemProxyDnsResolver();
             _blockedPagePath = blockedPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "index.html");
+            _timeoutPagePath = timeoutPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "timeout.html");
+            _localClock = localClock ?? (() => DateTime.Now);
             _clientSlots = new SemaphoreSlim(maximumConcurrentClients, maximumConcurrentClients);
             Port = port;
         }
@@ -283,20 +289,44 @@ namespace WebBlocker.Filtering
             }
 
             var decision = PolicyEvaluator.Evaluate(_policy, request.Host);
+            var timedRule = decision.IsAllowed
+                ? PolicyEvaluator.FindTimedAccessRule(_policy, request.Host)
+                : null;
+            TimedAccessWindow timedWindow = null;
+            if (timedRule != null)
+            {
+                var category = _policy.TimedAccessCategories.FirstOrDefault(item =>
+                    string.Equals(item.Name, timedRule.Category, StringComparison.OrdinalIgnoreCase));
+                if (category == null)
+                {
+                    throw new InvalidDataException("A timed-access rule references a missing category.");
+                }
+
+                timedWindow = _eventStore.AuthorizeTimedAccess(category, _localClock());
+            }
+
             var eventId = Guid.NewGuid();
-            var result = decision.IsAllowed
+            var isAllowed = decision.IsAllowed && (timedWindow == null || timedWindow.IsAllowed);
+            var result = isAllowed
                 ? ProxyAccessResult.AllowedByPolicy
-                : ProxyAccessResult.BlockedByPolicy;
+                : timedWindow != null && !timedWindow.IsAllowed
+                    ? ProxyAccessResult.BlockedByTimeLimit
+                    : ProxyAccessResult.BlockedByPolicy;
+            var matchedRuleId = result == ProxyAccessResult.BlockedByTimeLimit
+                ? (Guid?)timedRule.Id
+                : decision.MatchedRule == null ? (Guid?)null : decision.MatchedRule.Id;
             _eventStore.RecordAccessEvent(new ProxyAccessEvent(
                 eventId,
                 DateTime.UtcNow,
                 request.Host,
                 request.Method,
                 result,
-                decision.MatchedRule == null ? (Guid?)null : decision.MatchedRule.Id,
-                _policyVersion));
+                matchedRuleId,
+                _policyVersion,
+                request.RequestedUrl,
+                request.Port));
 
-            if (!decision.IsAllowed)
+            if (!isAllowed)
             {
                 if (request.IsConnect)
                 {
@@ -305,56 +335,101 @@ namespace WebBlocker.Filtering
                 }
                 else
                 {
-                    await WriteBlockedPageAsync(client.GetStream(), eventId, cancellationToken).ConfigureAwait(false);
+                    var pagePath = result == ProxyAccessResult.BlockedByTimeLimit
+                        ? _timeoutPagePath
+                        : _blockedPagePath;
+                    await WriteBlockedPageAsync(client.GetStream(), eventId, pagePath, cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 return;
             }
 
-            TcpClient upstream;
-            try
+            await ForwardAllowedRequestAsync(
+                client,
+                reader,
+                request,
+                timedWindow == null ? (DateTime?)null : timedWindow.ExpiresAtUtc,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task ForwardAllowedRequestAsync(
+            TcpClient client,
+            BufferedNetworkReader reader,
+            ProxyRequest request,
+            DateTime? timedExpiryUtc,
+            CancellationToken cancellationToken)
+        {
+            CancellationToken requestToken = cancellationToken;
+            CancellationTokenSource timedDeadline = null;
+            if (timedExpiryUtc.HasValue)
             {
-                upstream = await ConnectUpstreamAsync(request.Host, request.Port, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (SocketException exception)
-            {
-                ReportError(exception);
-                await WriteTextResponseAsync(client.GetStream(), 502, "Bad Gateway", cancellationToken)
-                    .ConfigureAwait(false);
-                return;
-            }
-            catch (TimeoutException exception)
-            {
-                ReportError(exception);
-                await WriteTextResponseAsync(client.GetStream(), 502, "Bad Gateway", cancellationToken)
-                    .ConfigureAwait(false);
-                return;
+                timedDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var remaining = timedExpiryUtc.Value - _localClock().ToUniversalTime();
+                if (remaining <= TimeSpan.Zero)
+                {
+                    timedDeadline.Cancel();
+                }
+                else
+                {
+                    timedDeadline.CancelAfter(remaining);
+                }
+
+                requestToken = timedDeadline.Token;
             }
 
-            using (upstream)
+            using (timedDeadline)
             {
-                if (request.IsConnect)
+                TcpClient upstream;
+                try
                 {
-                    await WriteRawAsync(client.GetStream(), "HTTP/1.1 200 Connection Established\r\n\r\n",
-                        cancellationToken).ConfigureAwait(false);
-                    await reader.WriteBufferedToAsync(upstream.GetStream(), cancellationToken).ConfigureAwait(false);
-                    await TunnelAsync(client, upstream, cancellationToken).ConfigureAwait(false);
+                    upstream = await ConnectUpstreamAsync(request.Host, request.Port, requestToken)
+                        .ConfigureAwait(false);
+                }
+                catch (SocketException exception)
+                {
+                    ReportError(exception);
+                    await WriteTextResponseAsync(client.GetStream(), 502, "Bad Gateway", requestToken)
+                        .ConfigureAwait(false);
+                    return;
+                }
+                catch (TimeoutException exception)
+                {
+                    ReportError(exception);
+                    await WriteTextResponseAsync(client.GetStream(), 502, "Bad Gateway", requestToken)
+                        .ConfigureAwait(false);
                     return;
                 }
 
-                byte[] body = request.HasBody
-                    ? await reader.ReadExactlyAsync(request.ContentLength, cancellationToken).ConfigureAwait(false)
-                    : new byte[0];
-                var upstreamStream = upstream.GetStream();
-                await WriteRawAsync(upstreamStream, request.RewrittenHeaders, cancellationToken).ConfigureAwait(false);
-                if (body.Length > 0)
+                using (upstream)
+                using (requestToken.Register(() =>
                 {
-                    await upstreamStream.WriteAsync(body, 0, body.Length, cancellationToken).ConfigureAwait(false);
-                }
+                    client.Close();
+                    upstream.Close();
+                }))
+                {
+                    if (request.IsConnect)
+                    {
+                        await WriteRawAsync(client.GetStream(), "HTTP/1.1 200 Connection Established\r\n\r\n",
+                            requestToken).ConfigureAwait(false);
+                        await reader.WriteBufferedToAsync(upstream.GetStream(), requestToken).ConfigureAwait(false);
+                        await TunnelAsync(client, upstream, requestToken).ConfigureAwait(false);
+                        return;
+                    }
 
-                await upstreamStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await upstreamStream.CopyToAsync(client.GetStream(), 81920, cancellationToken).ConfigureAwait(false);
+                    byte[] body = request.HasBody
+                        ? await reader.ReadExactlyAsync(request.ContentLength, requestToken).ConfigureAwait(false)
+                        : new byte[0];
+                    var upstreamStream = upstream.GetStream();
+                    await WriteRawAsync(upstreamStream, request.RewrittenHeaders, requestToken).ConfigureAwait(false);
+                    if (body.Length > 0)
+                    {
+                        await upstreamStream.WriteAsync(body, 0, body.Length, requestToken).ConfigureAwait(false);
+                    }
+
+                    await upstreamStream.FlushAsync(requestToken).ConfigureAwait(false);
+                    await upstreamStream.CopyToAsync(client.GetStream(), 81920, requestToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -456,17 +531,18 @@ namespace WebBlocker.Filtering
         private async Task WriteBlockedPageAsync(
             NetworkStream stream,
             Guid eventId,
+            string pagePath,
             CancellationToken cancellationToken)
         {
             byte[] body;
             try
             {
-                body = File.ReadAllBytes(_blockedPagePath);
+                body = File.ReadAllBytes(pagePath);
             }
             catch (Exception exception) when (
                 exception is IOException || exception is UnauthorizedAccessException)
             {
-                ReportError(new IOException("The local blocked-page file could not be read.", exception));
+                ReportError(new IOException("The local filtering page file could not be read.", exception));
                 _eventStore.UpdateAccessEventResult(eventId, ProxyAccessResult.BlockPageFailure);
                 await WriteTextResponseAsync(stream, 503, "Filtering Error", cancellationToken).ConfigureAwait(false);
                 return;
@@ -506,7 +582,7 @@ namespace WebBlocker.Filtering
 
         private void ReportError(Exception exception)
         {
-            Trace.TraceError("WebBlocker proxy error: {0}", exception);
+            Trace.TraceError("NetWard proxy error: {0}", exception);
             var handler = ClientError;
             if (handler == null)
             {
@@ -519,7 +595,7 @@ namespace WebBlocker.Filtering
             }
             catch (Exception subscriberException)
             {
-                Trace.TraceError("WebBlocker proxy error subscriber failed: {0}", subscriberException);
+                Trace.TraceError("NetWard proxy error subscriber failed: {0}", subscriberException);
             }
         }
 
@@ -537,7 +613,7 @@ namespace WebBlocker.Filtering
             }
             catch (Exception exception)
             {
-                Trace.TraceError("WebBlocker proxy could not send an error response: {0}", exception);
+                Trace.TraceError("NetWard proxy could not send an error response: {0}", exception);
             }
         }
 

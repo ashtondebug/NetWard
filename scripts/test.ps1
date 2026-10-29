@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $testExecutable = Join-Path $repositoryRoot 'tests\WebBlocker.Shared.Tests\bin\Release\net48\WebBlocker.Shared.Tests.exe'
-$proxyHost = Join-Path $repositoryRoot 'src\WebBlocker.ProxyHost\bin\Release\net48\WebBlocker.ProxyHost.exe'
+$proxyHost = Join-Path $repositoryRoot 'src\WebBlocker.ProxyHost\bin\Release\net48\NetWard.ProxyHost.exe'
 
-dotnet build (Join-Path $repositoryRoot 'WebBlocker.sln') --configuration Release
+dotnet build (Join-Path $repositoryRoot 'NetWard.sln') --configuration Release
 if ($LASTEXITCODE -ne 0) {
     throw 'Build failed; policy tests were not run.'
 }

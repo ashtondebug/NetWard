@@ -29,5 +29,33 @@ namespace WebBlocker.Shared
 
             return new PolicyDecision(isAllowed, matchedRule);
         }
+
+        public static TimedAccessRule FindTimedAccessRule(AccessPolicy policy, string host)
+        {
+            if (policy == null)
+            {
+                throw new ArgumentNullException("policy");
+            }
+
+            var normalizedHost = DomainName.Normalize(host);
+            TimedAccessRule matchedRule = null;
+            foreach (var rule in policy.TimedAccessRules)
+            {
+                if (!rule.MatchesNormalizedHost(normalizedHost))
+                {
+                    continue;
+                }
+
+                if (matchedRule == null ||
+                    rule.Domain.Length > matchedRule.Domain.Length ||
+                    (rule.Domain.Length == matchedRule.Domain.Length &&
+                     !rule.IncludeSubdomains && matchedRule.IncludeSubdomains))
+                {
+                    matchedRule = rule;
+                }
+            }
+
+            return matchedRule;
+        }
     }
 }

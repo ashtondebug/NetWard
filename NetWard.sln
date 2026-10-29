@@ -13,9 +13,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebBlocker.Shared.Tests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebBlocker.Filtering", "src\WebBlocker.Filtering\WebBlocker.Filtering.csproj", "{82A4CA19-0FBE-411D-9537-C8C6A9092E0C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebBlocker.ProxyHost", "src\WebBlocker.ProxyHost\WebBlocker.ProxyHost.csproj", "{F574CE8E-1435-463A-B389-C03034609009}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetWard ProxyHost", "src\WebBlocker.ProxyHost\WebBlocker.ProxyHost.csproj", "{F574CE8E-1435-463A-B389-C03034609009}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebBlocker.Persistence", "src\WebBlocker.Persistence\WebBlocker.Persistence.csproj", "{5B939484-0396-4641-90D2-EBB90574036B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetWard 管理端", "src\WebBlocker.Administrator\WebBlocker.Administrator.csproj", "{73F71D4C-A0C3-429C-89BD-2F97D7F477CA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -46,6 +48,10 @@ Global
 		{5B939484-0396-4641-90D2-EBB90574036B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5B939484-0396-4641-90D2-EBB90574036B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5B939484-0396-4641-90D2-EBB90574036B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73F71D4C-A0C3-429C-89BD-2F97D7F477CA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73F71D4C-A0C3-429C-89BD-2F97D7F477CA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73F71D4C-A0C3-429C-89BD-2F97D7F477CA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73F71D4C-A0C3-429C-89BD-2F97D7F477CA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{BF08430F-CD2E-497E-81C6-544F14A3ABB4} = {7181D61A-BE3C-431F-9AD7-732AF416411C}
@@ -53,5 +59,6 @@ Global
 		{82A4CA19-0FBE-411D-9537-C8C6A9092E0C} = {7181D61A-BE3C-431F-9AD7-732AF416411C}
 		{F574CE8E-1435-463A-B389-C03034609009} = {7181D61A-BE3C-431F-9AD7-732AF416411C}
 		{5B939484-0396-4641-90D2-EBB90574036B} = {7181D61A-BE3C-431F-9AD7-732AF416411C}
+		{73F71D4C-A0C3-429C-89BD-2F97D7F477CA} = {7181D61A-BE3C-431F-9AD7-732AF416411C}
 	EndGlobalSection
 EndGlobal

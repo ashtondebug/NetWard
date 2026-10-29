@@ -3,68 +3,324 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>网页访问已拦截 | WebBlocker</title>
+  <meta name="color-scheme" content="light dark">
+  <title>网页访问受限 - NetWard 网界卫士</title>
   <style>
     :root {
-      color-scheme: light;
+      color-scheme: light dark;
+      --background: #f5f7fa;
+      --surface: rgba(255, 255, 255, .88);
+      --text-primary: #182230;
+      --text-secondary: #667085;
+      --accent: #2563eb;
+      --accent-soft: #eaf1ff;
+      --border: rgba(16, 24, 40, .08);
+      --decoration: rgba(37, 99, 235, .045);
+      --shadow: 0 24px 80px rgba(16, 24, 40, .07);
       font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-      color: #17233c;
-      background: #f3f6fa;
       font-synthesis: none;
     }
     * { box-sizing: border-box; }
+    html { min-height: 100%; }
     body {
-      min-width: 280px;
-      min-height: 100vh;
       margin: 0;
-      display: grid;
-      place-items: center;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       padding: 32px 20px;
+      overflow-x: hidden;
+      color: var(--text-primary);
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, .075), transparent 52%),
+        var(--background);
+      -webkit-font-smoothing: antialiased;
     }
-    main {
-      width: min(100%, 680px);
-      padding: clamp(30px, 7vw, 64px);
-      border: 1px solid #dfe6ef;
-      border-radius: 12px;
-      background: #fff;
-      box-shadow: 0 16px 48px rgba(27, 44, 71, .08);
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background-image:
+        linear-gradient(var(--decoration) 1px, transparent 1px),
+        linear-gradient(90deg, var(--decoration) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: linear-gradient(to bottom, black, transparent 85%);
     }
-    .eyebrow {
-      margin: 0 0 18px;
-      color: #52647e;
+    .container {
+      width: 100%;
+      max-width: 760px;
+      text-align: center;
+      animation: appear 550ms ease-out both;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 48px;
+      color: var(--text-secondary);
       font-size: 13px;
       font-weight: 600;
-      letter-spacing: .12em;
-      text-transform: uppercase;
+      letter-spacing: 2px;
     }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      color: white;
+      background: var(--accent);
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, .2);
+    }
+    .brand-mark svg { width: 19px; height: 19px; }
+    .icon-wrapper {
+      display: grid;
+      place-items: center;
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 30px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid rgba(37, 99, 235, .08);
+      border-radius: 26px;
+    }
+    .icon-wrapper svg { width: 42px; height: 42px; }
     h1 {
       margin: 0;
-      color: #9c2f35;
-      font-size: clamp(24px, 5vw, 34px);
+      font-size: clamp(25px, 4.5vw, 36px);
       line-height: 1.5;
-      font-weight: 650;
+      font-weight: 700;
+      letter-spacing: -.8px;
+      overflow-wrap: anywhere;
     }
-    .translation {
-      margin: 16px 0 0;
-      color: #44536b;
-      font-size: 16px;
+    .english {
+      margin: 12px 0 0;
+      color: var(--text-secondary);
+      font-size: clamp(14px, 2.5vw, 16px);
+      line-height: 1.8;
+      overflow-wrap: anywhere;
+    }
+    .divider {
+      width: 44px;
+      height: 3px;
+      margin: 32px auto;
+      background: var(--accent);
+      border-radius: 99px;
+      opacity: .7;
+    }
+    .description {
+      max-width: 480px;
+      margin: 0 auto;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.9;
+    }
+    .actions { margin-top: 26px; }
+    .request-button, .submit-button {
+      min-height: 42px;
+      padding: 0 20px;
+      color: #fff;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .request-button:hover, .submit-button:hover { filter: brightness(1.08); }
+    .request-button:focus-visible, .submit-button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, .35);
+      outline-offset: 2px;
+    }
+    .request-form {
+      max-width: 480px;
+      margin: 18px auto 0;
+      padding: 18px;
+      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .request-form[hidden] { display: none; }
+    .field { display: block; margin-bottom: 14px; }
+    .field span {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .field input, .field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      color: var(--text-primary);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+      font-size: 13px;
+    }
+    .field textarea { min-height: 88px; resize: vertical; }
+    .field input[readonly] { color: var(--text-secondary); }
+    .request-status {
+      margin: 12px 0 0;
+      color: var(--text-secondary);
+      font-size: 12px;
       line-height: 1.7;
     }
-    .divider { height: 1px; margin: 30px 0 22px; background: #e7ecf2; }
-    .notice { margin: 0; color: #6a778b; font-size: 13px; line-height: 1.7; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 32px;
+      padding: 10px 15px;
+      color: var(--text-secondary);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 12px;
+      letter-spacing: .2px;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      flex-shrink: 0;
+      background: #16a34a;
+      border-radius: 50%;
+    }
+    footer {
+      margin-top: 72px;
+      color: var(--text-secondary);
+      font-size: 11px;
+      letter-spacing: 1.2px;
+      opacity: .75;
+    }
+    @keyframes appear {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; }
+      *, *::before, *::after {
+        animation: none !important;
+        scroll-behavior: auto !important;
+      }
+    }
+    @media (max-width: 480px) {
+      body { padding: 24px 22px; }
+      .brand { margin-bottom: 40px; }
+      .icon-wrapper {
+        width: 76px;
+        height: 76px;
+        margin-bottom: 24px;
+        border-radius: 22px;
+      }
+      .icon-wrapper svg { width: 36px; height: 36px; }
+      .divider { margin: 26px auto; }
+      footer { margin-top: 56px; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #10141c;
+        --surface: rgba(255, 255, 255, .035);
+        --text-primary: #edf2fa;
+        --text-secondary: #98a2b3;
+        --accent: #78a5ff;
+        --accent-soft: rgba(59, 110, 220, .15);
+        --border: rgba(255, 255, 255, .09);
+        --decoration: rgba(255, 255, 255, .025);
+        --shadow: none;
+      }
+      .brand-mark { color: #10141c; }
+      .icon-wrapper { border-color: rgba(120, 165, 255, .12); }
+      .status-dot { background: #4ade80; }
+      .request-button:focus-visible, .submit-button:focus-visible, input:focus-visible, textarea:focus-visible {
+        outline-color: rgba(120, 165, 255, .5);
+      }
     }
   </style>
 </head>
 <body>
-  <main>
-    <p class="eyebrow">WebBlocker · Access control</p>
+  <main class="container">
+    <div class="brand" aria-label="NetWard 网界卫士">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3 20 6v5c0 5-3.4 8.2-8 10-4.6-1.8-8-5-8-10V6l8-3Z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </span>
+      <span>NETWARD 网界卫士</span>
+    </div>
+
+    <div class="icon-wrapper" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3 20 6v5c0 5-3.4 8.2-8 10-4.6-1.8-8-5-8-10V6l8-3Z"/>
+        <path d="M9 10v4"/>
+        <path d="M15 10v4"/>
+      </svg>
+    </div>
+
     <h1>此网页已被管理员设置为禁止访问</h1>
-    <p class="translation">This webpage has been blocked by the administrator.</p>
+    <p class="english">This webpage has been blocked by the administrator.</p>
     <div class="divider" aria-hidden="true"></div>
-    <p class="notice">如需访问此网站，请联系设备管理员。<br>To request access, contact your device administrator.</p>
+    <p class="description">
+      当前访问请求不符合管理员设定的网页访问规则。<br>
+      如需访问此网站，请提交申请或联系系统管理员。
+    </p>
+
+    <div class="actions">
+      <button class="request-button" id="show-request" type="button" aria-expanded="false" aria-controls="request-form">
+        申请访问
+      </button>
+      <form class="request-form" id="request-form" hidden>
+        <label class="field" for="request-url">
+          <span>申请访问的网址</span>
+          <input id="request-url" name="url" type="url" readonly>
+        </label>
+        <label class="field" for="request-reason">
+          <span>申请理由</span>
+          <textarea id="request-reason" name="reason" maxlength="1000" required></textarea>
+        </label>
+        <button class="submit-button" type="submit">提交申请</button>
+        <p class="request-status" id="request-status" role="status" aria-live="polite">
+          申请通道尚未连接到管理端；填写内容不会发送或保存。
+        </p>
+      </form>
+    </div>
+
+    <div class="status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>WEB ACCESS RESTRICTION</span>
+    </div>
+    <footer>NETWARD&nbsp;&nbsp;·&nbsp;&nbsp;WEB ACCESS CONTROL</footer>
   </main>
+  <script>
+    (function () {
+      var button = document.getElementById("show-request");
+      var form = document.getElementById("request-form");
+      var url = document.getElementById("request-url");
+      var reason = document.getElementById("request-reason");
+      var status = document.getElementById("request-status");
+
+      button.addEventListener("click", function () {
+        var isOpen = !form.hidden;
+        form.hidden = isOpen;
+        button.setAttribute("aria-expanded", String(!isOpen));
+        if (!isOpen) {
+          url.value = window.location.href;
+          reason.focus();
+        }
+      });
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        status.textContent = "申请通道尚未连接到管理端，申请未发送。请联系系统管理员。";
+      });
+    }());
+  </script>
 </body>
 </html>

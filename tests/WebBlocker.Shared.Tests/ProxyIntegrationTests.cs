@@ -44,6 +44,10 @@ namespace WebBlocker.Shared.Tests
                     AssertContains(blockedResponse, "HTTP/1.1 403 Forbidden");
                     AssertContains(blockedResponse, "此网页已被管理员设置为禁止访问");
                     AssertContains(blockedResponse, "This webpage has been blocked by the administrator.");
+                    AssertContains(blockedResponse, "申请访问");
+                    AssertContains(blockedResponse, "申请访问的网址");
+                    AssertContains(blockedResponse, "申请理由");
+                    AssertContains(blockedResponse, "申请未发送");
                     AssertFalse(origin.Pending());
 
                     var originTask = Task.Run(async () =>
@@ -78,8 +82,16 @@ namespace WebBlocker.Shared.Tests
                     var allowedEvents = store.QueryAccessEvents(false, "allowed.example.test", 1, 10);
                     AssertEqual(1L, blockedEvents.TotalCount);
                     AssertEqual("blocked.example.test", blockedEvents.Events[0].Domain);
+                    AssertEqual(
+                        "http://blocked.example.test:" + originPort + "/denied",
+                        blockedEvents.Events[0].RequestedUrl);
+                    AssertEqual((int?)originPort, blockedEvents.Events[0].DestinationPort);
                     AssertEqual(1L, allowedEvents.TotalCount);
                     AssertEqual(ProxyAccessResult.AllowedByPolicy, allowedEvents.Events[0].Result);
+                    AssertEqual(
+                        "http://allowed.example.test:" + originPort + "/resource?q=1",
+                        allowedEvents.Events[0].RequestedUrl);
+                    AssertEqual((int?)originPort, allowedEvents.Events[0].DestinationPort);
                 }
                 finally
                 {
@@ -158,6 +170,8 @@ namespace WebBlocker.Shared.Tests
                         var events = store.QueryAccessEvents(true, null, 1, 10);
                         AssertEqual(1L, events.TotalCount);
                         AssertEqual("blocked.example.test", events.Events[0].Domain);
+                        AssertEqual((int?)blockedPort, events.Events[0].DestinationPort);
+                        AssertTrue(events.Events[0].RequestedUrl == null);
                     }
                     finally
                     {
@@ -203,12 +217,186 @@ namespace WebBlocker.Shared.Tests
                         AssertContains(connectionHostResponse, "HTTP/1.1 400 Bad Request");
                         AssertFalse(origin.Pending());
                     }
+
                     finally
                     {
                         await proxy.StopAsync().ConfigureAwait(false);
                         origin.Stop();
                     }
                 }
+            }
+        }
+
+        public static async Task TimedAccessExpiryServesTimeoutPageAsync()
+        {
+            using (var database = new TestDatabase())
+            {
+                var store = new AccessEventStore(database.Path);
+                var localNow = DateTime.SpecifyKind(
+                    new DateTime(2026, 1, 15, 12, 0, 0),
+                    DateTimeKind.Local);
+                var category = new TimedAccessCategory("Study", 1);
+                var timedRule = new TimedAccessRule(
+                    Guid.NewGuid(), "timed.example.test", true, category.Name, true);
+                var policy = new AccessPolicy(
+                    AccessMode.BlockList,
+                    new DomainRule[0],
+                    new[] { category },
+                    new[] { timedRule });
+                var policyVersion = store.SavePolicy(policy);
+                store.AuthorizeTimedAccess(category, localNow.AddMinutes(-2));
+
+                using (var proxy = new DomainFilteringProxy(
+                    policy,
+                    0,
+                    new LoopbackDnsResolver(),
+                    eventStore: store,
+                    policyVersion: policyVersion,
+                    timeoutPagePath: GetTimeoutPagePath(),
+                    localClock: () => localNow))
+                {
+                    proxy.Start();
+                    try
+                    {
+                        var response = await SendRequestAsync(
+                            proxy.Port,
+                            "GET http://timed.example.test/ HTTP/1.1\r\n" +
+                            "Host: timed.example.test\r\n\r\n").ConfigureAwait(false);
+                        AssertContains(response, "HTTP/1.1 403 Forbidden");
+                        AssertContains(response, "本网页的可访问时间已到，已禁止访问");
+                        AssertContains(response, "申请访问");
+                        AssertContains(response, "申请访问的网址");
+                        AssertContains(response, "申请理由");
+                        AssertContains(response, "申请未发送");
+                        AssertFalse(response.IndexOf("此网页已被管理员设置为禁止访问", StringComparison.Ordinal) >= 0);
+
+                        var events = store.QueryAccessEvents(true, null, 1, 10);
+                        AssertEqual(1L, events.TotalCount);
+                        AssertEqual(ProxyAccessResult.BlockedByTimeLimit, events.Events[0].Result);
+                        AssertEqual(timedRule.Id, events.Events[0].MatchedRuleId.Value);
+                    }
+                    finally
+                    {
+                        await proxy.StopAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        public static async Task TimedAccessDoesNotOverrideBaseDenialAsync()
+        {
+            using (var database = new TestDatabase())
+            {
+                var store = new AccessEventStore(database.Path);
+                var category = new TimedAccessCategory("Study", 30);
+                var timedRule = new TimedAccessRule(
+                    Guid.NewGuid(), "timed.example.test", true, category.Name, true);
+                var allowRule = new DomainRule(Guid.NewGuid(), "allowed.example.test", true, true);
+                var policy = new AccessPolicy(
+                    AccessMode.AllowList,
+                    new[] { allowRule },
+                    new[] { category },
+                    new[] { timedRule });
+                var policyVersion = store.SavePolicy(policy);
+
+                using (var proxy = new DomainFilteringProxy(
+                    policy,
+                    0,
+                    new LoopbackDnsResolver(),
+                    GetBlockedPagePath(),
+                    eventStore: store,
+                    policyVersion: policyVersion))
+                {
+                    proxy.Start();
+                    try
+                    {
+                        var response = await SendRequestAsync(
+                            proxy.Port,
+                            "GET http://timed.example.test/ HTTP/1.1\r\n" +
+                            "Host: timed.example.test\r\n\r\n").ConfigureAwait(false);
+                        AssertContains(response, "HTTP/1.1 403 Forbidden");
+                        AssertContains(response, "此网页已被管理员设置为禁止访问");
+
+                        var events = store.QueryAccessEvents(true, null, 1, 10);
+                        AssertEqual(ProxyAccessResult.BlockedByPolicy, events.Events[0].Result);
+                        AssertTrue(!events.Events[0].MatchedRuleId.HasValue);
+                    }
+                    finally
+                    {
+                        await proxy.StopAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        public static async Task TimedConnectTunnelClosesAtExpiryAsync()
+        {
+            var origin = new TcpListener(IPAddress.Loopback, 0);
+            origin.Start();
+            var originPort = ((IPEndPoint)origin.LocalEndpoint).Port;
+
+            using (var database = new TestDatabase())
+            {
+                var store = new AccessEventStore(database.Path);
+                var localNow = DateTime.SpecifyKind(
+                    new DateTime(2026, 1, 15, 12, 0, 0),
+                    DateTimeKind.Local);
+                var category = new TimedAccessCategory("Study", 1);
+                var timedRule = new TimedAccessRule(
+                    Guid.NewGuid(), "timed.example.test", true, category.Name, true);
+                var policy = new AccessPolicy(
+                    AccessMode.BlockList,
+                    new DomainRule[0],
+                    new[] { category },
+                    new[] { timedRule });
+                var policyVersion = store.SavePolicy(policy);
+                store.AuthorizeTimedAccess(category, localNow.AddMinutes(-1).AddSeconds(1));
+
+                var originTask = Task.Run(async () =>
+                {
+                    using (var accepted = await origin.AcceptTcpClientAsync().ConfigureAwait(false))
+                    {
+                        await accepted.GetStream().ReadAsync(new byte[1], 0, 1).ConfigureAwait(false);
+                    }
+                });
+
+                using (var proxy = new DomainFilteringProxy(
+                    policy,
+                    0,
+                    new LoopbackDnsResolver(),
+                    eventStore: store,
+                    policyVersion: policyVersion,
+                    localClock: () => localNow))
+                using (var client = new TcpClient())
+                {
+                    proxy.Start();
+                    try
+                    {
+                        await client.ConnectAsync(IPAddress.Loopback, proxy.Port).ConfigureAwait(false);
+                        var stream = client.GetStream();
+                        var request = Encoding.ASCII.GetBytes(
+                            "CONNECT timed.example.test:" + originPort + " HTTP/1.1\r\n" +
+                            "Host: timed.example.test:" + originPort + "\r\n\r\n");
+                        await stream.WriteAsync(request, 0, request.Length).ConfigureAwait(false);
+                        var responseHeaders = await ReadHeadersAsync(stream).ConfigureAwait(false);
+                        AssertContains(responseHeaders, "HTTP/1.1 200 Connection Established");
+
+                        var readTask = stream.ReadAsync(new byte[1], 0, 1);
+                        if (await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(4))).ConfigureAwait(false) != readTask)
+                        {
+                            throw new InvalidOperationException("The timed CONNECT tunnel remained open past expiry.");
+                        }
+
+                        AssertEqual(0, await readTask.ConfigureAwait(false));
+                    }
+                    finally
+                    {
+                        await proxy.StopAsync().ConfigureAwait(false);
+                        origin.Stop();
+                    }
+                }
+
+                await originTask.ConfigureAwait(false);
             }
         }
 
@@ -326,6 +514,25 @@ namespace WebBlocker.Shared.Tests
             }
 
             throw new FileNotFoundException("The local blocked-page fixture could not be found.", outputPath);
+        }
+
+        private static string GetTimeoutPagePath()
+        {
+            var outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "timeout.html");
+            if (File.Exists(outputPath))
+            {
+                return outputPath;
+            }
+
+            var sourcePath = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                @"..\..\..\..\..\src\WebBlocker.Filtering\timeout.html"));
+            if (File.Exists(sourcePath))
+            {
+                return sourcePath;
+            }
+
+            throw new FileNotFoundException("The local timeout-page fixture could not be found.", outputPath);
         }
 
         private static void AssertContains(string value, string expected)

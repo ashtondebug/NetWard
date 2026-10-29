@@ -83,6 +83,12 @@ namespace WebBlocker.ProxyHost
                     return 0;
                 }
 
+                var expiredEventCount = store.PruneExpiredAccessEvents(DateTime.UtcNow);
+                Console.WriteLine(
+                    "Removed {0} access events older than {1} days.",
+                    expiredEventCount,
+                    AccessEventStore.AccessEventRetentionDays);
+
                 AccessPolicy policy;
                 long policyVersion;
                 if (options.Mode.HasValue)
@@ -107,6 +113,11 @@ namespace WebBlocker.ProxyHost
                     policyVersion = snapshot.Version;
                 }
 
+                using (var retentionTimer = new Timer(
+                    state => PruneExpiredEvents(store),
+                    null,
+                    TimeSpan.FromHours(1),
+                    TimeSpan.FromHours(1)))
                 using (var shutdown = new ManualResetEventSlim())
                 using (var proxy = new DomainFilteringProxy(
                     policy,
@@ -131,7 +142,7 @@ namespace WebBlocker.ProxyHost
                             return 1;
                         }
 
-                        Console.WriteLine("WebBlocker explicit proxy listening on 127.0.0.1:{0}", proxy.Port);
+                        Console.WriteLine("NetWard 网界卫士本地代理正在监听 127.0.0.1:{0}", proxy.Port);
                         Console.WriteLine("Policy: {0}; rules: {1}; version: {2}",
                             policy.Mode, policy.Rules.Count, policyVersion);
                         Console.WriteLine("Local policy and access events: " + store.DatabasePath);
@@ -179,6 +190,43 @@ namespace WebBlocker.ProxyHost
         }
 
         private static ManualResetEventSlim _shutdownEvent;
+        private static int _retentionPruneInProgress;
+
+        private static void PruneExpiredEvents(AccessEventStore store)
+        {
+            if (Interlocked.Exchange(ref _retentionPruneInProgress, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var deletedCount = store.PruneExpiredAccessEvents(DateTime.UtcNow);
+                if (deletedCount > 0)
+                {
+                    Console.WriteLine(
+                        "Removed {0} access events older than {1} days.",
+                        deletedCount,
+                        AccessEventStore.AccessEventRetentionDays);
+                }
+            }
+            catch (SQLiteException exception)
+            {
+                Console.Error.WriteLine("Automatic access-event retention failed: " + exception.Message);
+            }
+            catch (IOException exception)
+            {
+                Console.Error.WriteLine("Automatic access-event retention failed: " + exception.Message);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                Console.Error.WriteLine("Automatic access-event retention failed: " + exception.Message);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _retentionPruneInProgress, 0);
+            }
+        }
 
         private static void OnCancelKeyPress(object sender, ConsoleCancelEventArgs eventArgs)
         {
@@ -368,15 +416,15 @@ namespace WebBlocker.ProxyHost
 
         private static void WriteUsage()
         {
-            Console.WriteLine("WebBlocker explicit loopback proxy");
-            Console.WriteLine("Usage: WebBlocker.ProxyHost.exe [--mode allowlist|blocklist] [--port 0..65535] [--database path] [--rule exact:domain|subdomains:domain ...] [--allow-empty-rules]");
-            Console.WriteLine("       WebBlocker.ProxyHost.exe [--database path] --backup-to destination");
-            Console.WriteLine("       WebBlocker.ProxyHost.exe [--database path] --prune-events-older-than-days 1..36500");
-            Console.WriteLine("       WebBlocker.ProxyHost.exe [--database path] --policy-history");
-            Console.WriteLine("       WebBlocker.ProxyHost.exe [--database path] --restore-policy-version version");
+            Console.WriteLine("NetWard 网界卫士 - 显式本地代理");
+            Console.WriteLine("Usage: NetWard.ProxyHost.exe [--mode allowlist|blocklist] [--port 0..65535] [--database path] [--rule exact:domain|subdomains:domain ...] [--allow-empty-rules]");
+            Console.WriteLine("       NetWard.ProxyHost.exe [--database path] --backup-to destination");
+            Console.WriteLine("       NetWard.ProxyHost.exe [--database path] --prune-events-older-than-days 1..36500");
+            Console.WriteLine("       NetWard.ProxyHost.exe [--database path] --policy-history");
+            Console.WriteLine("       NetWard.ProxyHost.exe [--database path] --restore-policy-version version");
             Console.WriteLine("Default port: 18080. Port 0 selects an available ephemeral port.");
             Console.WriteLine("The first run requires --mode and at least one --rule; --allow-empty-rules explicitly permits no rules.");
-            Console.WriteLine("Policy and access events are stored in the user's LocalAppData\\WebBlocker\\proxy.db by default.");
+            Console.WriteLine("Policy and access events are stored in the user's LocalAppData\\WebBlocker\\proxy.db by default (legacy data location).");
             Console.WriteLine("Later runs may omit --mode to restore the most recently saved policy.");
             Console.WriteLine("Only clients explicitly configured for this proxy are filtered. It does not configure Windows networking.");
             Console.WriteLine("HTTPS CONNECT decisions use the requested hostname; TLS is not decrypted.");

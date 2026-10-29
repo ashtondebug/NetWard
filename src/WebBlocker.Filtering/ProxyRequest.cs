@@ -15,6 +15,7 @@ namespace WebBlocker.Filtering
             string host,
             int port,
             string target,
+            string requestedUrl,
             bool isConnect,
             string rewrittenHeaders,
             int contentLength,
@@ -24,6 +25,7 @@ namespace WebBlocker.Filtering
             Host = host;
             Port = port;
             Target = target;
+            RequestedUrl = requestedUrl;
             IsConnect = isConnect;
             RewrittenHeaders = rewrittenHeaders;
             ContentLength = contentLength;
@@ -37,6 +39,8 @@ namespace WebBlocker.Filtering
         public int Port { get; private set; }
 
         public string Target { get; private set; }
+
+        public string RequestedUrl { get; private set; }
 
         public bool IsConnect { get; private set; }
 
@@ -162,12 +166,14 @@ namespace WebBlocker.Filtering
             string host;
             int port;
             string target;
+            string requestedUrl;
             Uri absoluteUri = null;
 
             if (isConnect)
             {
                 ParseConnectTarget(requestParts[1], out host, out port);
                 target = null;
+                requestedUrl = null;
                 if (contentLength != 0)
                 {
                     throw new InvalidDataException("CONNECT requests cannot contain a request body.");
@@ -193,6 +199,7 @@ namespace WebBlocker.Filtering
                 }
 
                 port = absoluteUri.Port;
+                requestedUrl = absoluteUri.OriginalString;
                 target = absoluteUri.GetComponents(UriComponents.PathAndQuery, UriFormat.UriEscaped);
                 if (target.Length == 0 || target[0] != '/')
                 {
@@ -232,7 +239,7 @@ namespace WebBlocker.Filtering
             }
 
             rewritten.Append("\r\n");
-            return new ProxyRequest(method, host, port, target, isConnect,
+            return new ProxyRequest(method, host, port, target, requestedUrl, isConnect,
                 rewritten.ToString(), contentLength, contentLength > 0);
         }
 

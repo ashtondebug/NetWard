@@ -10,7 +10,8 @@ namespace WebBlocker.Persistence
 {
     public sealed class AccessEventStore
     {
-        private const int CurrentSchemaVersion = 2;
+        private const int CurrentSchemaVersion = 4;
+        public const int AccessEventRetentionDays = 30;
         private readonly string _connectionString;
 
         public AccessEventStore(string databasePath)
@@ -118,6 +119,16 @@ namespace WebBlocker.Persistence
             }
         }
 
+        public int PruneExpiredAccessEvents(DateTime utcNow)
+        {
+            if (utcNow.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException("The current time must be UTC.", "utcNow");
+            }
+
+            return PruneAccessEventsBefore(utcNow.AddDays(-AccessEventRetentionDays));
+        }
+
         public long SavePolicy(AccessPolicy policy)
         {
             if (policy == null)
@@ -217,6 +228,8 @@ namespace WebBlocker.Persistence
                     mode = (AccessMode)modeValue;
                 }
 
+                var categories = LoadTimedAccessCategories(connection, historicalVersion, transaction);
+                var timedRules = LoadTimedAccessRules(connection, historicalVersion, transaction);
                 var rules = new List<DomainRule>();
                 using (var command = CreateCommand(connection, transaction,
                     "SELECT RuleId, Domain, IncludeSubdomains, IsEnabled " +
@@ -245,7 +258,7 @@ namespace WebBlocker.Persistence
                 var restoredVersion = SavePolicyInTransaction(
                     connection,
                     transaction,
-                    new AccessPolicy(mode, rules));
+                    new AccessPolicy(mode, rules, categories, timedRules));
                 transaction.Commit();
                 return restoredVersion;
             }
@@ -277,6 +290,8 @@ namespace WebBlocker.Persistence
                     version = reader.GetInt64(1);
                 }
 
+                var categories = LoadTimedAccessCategories(connection, null, null);
+                var timedRules = LoadTimedAccessRules(connection, null, null);
                 var rules = new List<DomainRule>();
                 using (var command = CreateCommand(connection, null,
                     "SELECT RuleId, Domain, IncludeSubdomains, IsEnabled FROM Rules ORDER BY rowid;"))
@@ -298,9 +313,76 @@ namespace WebBlocker.Persistence
                     }
                 }
 
-                snapshot = new PolicySnapshot(new AccessPolicy(mode, rules), version);
+                snapshot = new PolicySnapshot(new AccessPolicy(mode, rules, categories, timedRules), version);
                 return true;
             }
+        }
+
+        public TimedAccessWindow AuthorizeTimedAccess(TimedAccessCategory category, DateTime localNow)
+        {
+            if (category == null)
+            {
+                throw new ArgumentNullException("category");
+            }
+
+            if (localNow.Kind != DateTimeKind.Local)
+            {
+                throw new ArgumentException("The timed-access clock value must be local time.", "localNow");
+            }
+
+            var localDate = localNow.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var utcNow = localNow.ToUniversalTime();
+            var nextMidnightLocal = DateTime.SpecifyKind(localNow.Date.AddDays(1), DateTimeKind.Unspecified);
+            var nextMidnightUtc = TimeZoneInfo.ConvertTimeToUtc(nextMidnightLocal, TimeZoneInfo.Local);
+            var expiresAtUtc = utcNow.AddMinutes(category.TimeLimitMinutes);
+            if (expiresAtUtc > nextMidnightUtc)
+            {
+                expiresAtUtc = nextMidnightUtc;
+            }
+
+            DateTime storedExpiryUtc;
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+            {
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT OR IGNORE INTO TimedAccessWindows " +
+                    "(Category, LocalDate, StartedAtUtc, ExpiresAtUtc) " +
+                    "VALUES (@category, @localDate, @startedAtUtc, @expiresAtUtc);"))
+                {
+                    AddParameter(command, "@category", category.Name);
+                    AddParameter(command, "@localDate", localDate);
+                    AddParameter(command, "@startedAtUtc", utcNow.ToString("o", CultureInfo.InvariantCulture));
+                    AddParameter(command, "@expiresAtUtc", expiresAtUtc.ToString("o", CultureInfo.InvariantCulture));
+                    command.ExecuteNonQuery();
+                }
+
+                using (var command = CreateCommand(connection, transaction,
+                    "SELECT ExpiresAtUtc FROM TimedAccessWindows WHERE Category = @category AND LocalDate = @localDate;"))
+                {
+                    AddParameter(command, "@category", category.Name);
+                    AddParameter(command, "@localDate", localDate);
+                    var value = command.ExecuteScalar();
+                    if (value == null || value == DBNull.Value)
+                    {
+                        throw new InvalidDataException("The timed-access window could not be loaded after it was created.");
+                    }
+
+                    if (!DateTime.TryParseExact(
+                        Convert.ToString(value, CultureInfo.InvariantCulture),
+                        "o",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind,
+                        out storedExpiryUtc) ||
+                        storedExpiryUtc.Kind != DateTimeKind.Utc)
+                    {
+                        throw new InvalidDataException("The database contains an invalid timed-access expiry.");
+                    }
+                }
+
+                transaction.Commit();
+            }
+
+            return new TimedAccessWindow(category.Name, storedExpiryUtc, utcNow < storedExpiryUtc);
         }
 
         public bool RecordAccessEvent(ProxyAccessEvent accessEvent)
@@ -313,8 +395,8 @@ namespace WebBlocker.Persistence
             using (var connection = OpenConnection())
             using (var command = CreateCommand(connection, null,
                 "INSERT OR IGNORE INTO AccessEvents " +
-                "(EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion) " +
-                "VALUES (@eventId, @occurredAtUtc, @domain, @method, @result, @matchedRuleId, @policyVersion);"))
+                "(EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion, RequestedUrl, DestinationPort) " +
+                "VALUES (@eventId, @occurredAtUtc, @domain, @method, @result, @matchedRuleId, @policyVersion, @requestedUrl, @destinationPort);"))
             {
                 AddParameter(command, "@eventId", accessEvent.EventId.ToString("D"));
                 AddParameter(command, "@occurredAtUtc",
@@ -327,6 +409,10 @@ namespace WebBlocker.Persistence
                         ? (object)accessEvent.MatchedRuleId.Value.ToString("D")
                         : DBNull.Value);
                 AddParameter(command, "@policyVersion", accessEvent.PolicyVersion);
+                AddParameter(command, "@requestedUrl",
+                    accessEvent.RequestedUrl == null ? (object)DBNull.Value : accessEvent.RequestedUrl);
+                AddParameter(command, "@destinationPort",
+                    accessEvent.DestinationPort.HasValue ? (object)accessEvent.DestinationPort.Value : DBNull.Value);
                 return command.ExecuteNonQuery() == 1;
             }
         }
@@ -340,7 +426,8 @@ namespace WebBlocker.Persistence
 
             if (result != ProxyAccessResult.AllowedByPolicy &&
                 result != ProxyAccessResult.BlockedByPolicy &&
-                result != ProxyAccessResult.BlockPageFailure)
+                result != ProxyAccessResult.BlockPageFailure &&
+                result != ProxyAccessResult.BlockedByTimeLimit)
             {
                 throw new ArgumentOutOfRangeException("result");
             }
@@ -404,7 +491,7 @@ namespace WebBlocker.Persistence
                 var events = new List<ProxyAccessEvent>();
                 var offset = checked((pageNumber - 1) * pageSize);
                 using (var command = CreateCommand(connection, null,
-                    "SELECT EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion " +
+                    "SELECT EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion, RequestedUrl, DestinationPort " +
                     "FROM AccessEvents" + where + " ORDER BY OccurredAtUtc DESC, EventId DESC " +
                     "LIMIT @pageSize OFFSET @offset;"))
                 {
@@ -443,7 +530,7 @@ namespace WebBlocker.Persistence
 
                             var result = reader.GetInt32(4);
                             if (result < (int)ProxyAccessResult.AllowedByPolicy ||
-                                result > (int)ProxyAccessResult.BlockPageFailure)
+                                result > (int)ProxyAccessResult.BlockedByTimeLimit)
                             {
                                 throw new InvalidDataException("The database contains an unsupported access result.");
                             }
@@ -455,7 +542,9 @@ namespace WebBlocker.Persistence
                                 reader.GetString(3),
                                 (ProxyAccessResult)result,
                                 ruleId,
-                                reader.GetInt64(6)));
+                                reader.GetInt64(6),
+                                reader.IsDBNull(7) ? null : reader.GetString(7),
+                                reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8)));
                         }
                     }
                 }
@@ -491,6 +580,11 @@ namespace WebBlocker.Persistence
             }
 
             using (var command = CreateCommand(connection, transaction, "DELETE FROM Rules;"))
+            {
+                command.ExecuteNonQuery();
+            }
+            using (var command = CreateCommand(connection, transaction,
+                "DELETE FROM TimedAccessRules; DELETE FROM TimedAccessCategories;"))
             {
                 command.ExecuteNonQuery();
             }
@@ -533,7 +627,147 @@ namespace WebBlocker.Persistence
                 }
             }
 
+            for (var index = 0; index < policy.TimedAccessCategories.Count; index++)
+            {
+                var category = policy.TimedAccessCategories[index];
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO TimedAccessCategories (Name, TimeLimitMinutes) VALUES (@name, @minutes);"))
+                {
+                    AddParameter(command, "@name", category.Name);
+                    AddParameter(command, "@minutes", category.TimeLimitMinutes);
+                    command.ExecuteNonQuery();
+                }
+
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO PolicyVersionTimedAccessCategories " +
+                    "(Version, Name, TimeLimitMinutes) VALUES (@version, @name, @minutes);"))
+                {
+                    AddParameter(command, "@version", version);
+                    AddParameter(command, "@name", category.Name);
+                    AddParameter(command, "@minutes", category.TimeLimitMinutes);
+                    command.ExecuteNonQuery();
+                }
+            }
+
+            for (var index = 0; index < policy.TimedAccessRules.Count; index++)
+            {
+                var rule = policy.TimedAccessRules[index];
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO TimedAccessRules " +
+                    "(RuleId, Domain, IncludeSubdomains, Category, IsEnabled) " +
+                    "VALUES (@ruleId, @domain, @includeSubdomains, @category, @isEnabled);"))
+                {
+                    AddParameter(command, "@ruleId", rule.Id.ToString("D"));
+                    AddParameter(command, "@domain", rule.Domain);
+                    AddParameter(command, "@includeSubdomains", rule.IncludeSubdomains ? 1 : 0);
+                    AddParameter(command, "@category", rule.Category);
+                    AddParameter(command, "@isEnabled", rule.IsEnabled ? 1 : 0);
+                    command.ExecuteNonQuery();
+                }
+
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO PolicyVersionTimedAccessRules " +
+                    "(Version, RuleId, Domain, IncludeSubdomains, Category, IsEnabled, Ordinal) " +
+                    "VALUES (@version, @ruleId, @domain, @includeSubdomains, @category, @isEnabled, @ordinal);"))
+                {
+                    AddParameter(command, "@version", version);
+                    AddParameter(command, "@ruleId", rule.Id.ToString("D"));
+                    AddParameter(command, "@domain", rule.Domain);
+                    AddParameter(command, "@includeSubdomains", rule.IncludeSubdomains ? 1 : 0);
+                    AddParameter(command, "@category", rule.Category);
+                    AddParameter(command, "@isEnabled", rule.IsEnabled ? 1 : 0);
+                    AddParameter(command, "@ordinal", index);
+                    command.ExecuteNonQuery();
+                }
+            }
+
             return version;
+        }
+
+        private static IList<TimedAccessCategory> LoadTimedAccessCategories(
+            SQLiteConnection connection,
+            long? historicalVersion,
+            SQLiteTransaction transaction)
+        {
+            var categories = new List<TimedAccessCategory>();
+            var table = historicalVersion.HasValue
+                ? "PolicyVersionTimedAccessCategories"
+                : "TimedAccessCategories";
+            var where = historicalVersion.HasValue ? " WHERE Version = @version" : string.Empty;
+            using (var command = CreateCommand(connection, transaction,
+                "SELECT Name, TimeLimitMinutes FROM " + table + where + " ORDER BY Name COLLATE NOCASE;"))
+            {
+                if (historicalVersion.HasValue)
+                {
+                    AddParameter(command, "@version", historicalVersion.Value);
+                }
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        try
+                        {
+                            categories.Add(new TimedAccessCategory(reader.GetString(0), reader.GetInt32(1)));
+                        }
+                        catch (ArgumentException exception)
+                        {
+                            throw new InvalidDataException("The database contains an invalid timed-access category.", exception);
+                        }
+                    }
+                }
+            }
+
+            return categories;
+        }
+
+        private static IList<TimedAccessRule> LoadTimedAccessRules(
+            SQLiteConnection connection,
+            long? historicalVersion,
+            SQLiteTransaction transaction)
+        {
+            var rules = new List<TimedAccessRule>();
+            var table = historicalVersion.HasValue
+                ? "PolicyVersionTimedAccessRules"
+                : "TimedAccessRules";
+            var where = historicalVersion.HasValue ? " WHERE Version = @version" : string.Empty;
+            using (var command = CreateCommand(connection, transaction,
+                "SELECT RuleId, Domain, IncludeSubdomains, Category, IsEnabled FROM " + table + where +
+                (historicalVersion.HasValue ? " ORDER BY Ordinal;" : " ORDER BY rowid;")))
+            {
+                if (historicalVersion.HasValue)
+                {
+                    AddParameter(command, "@version", historicalVersion.Value);
+                }
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Guid ruleId;
+                        if (!Guid.TryParse(reader.GetString(0), out ruleId))
+                        {
+                            throw new InvalidDataException("The database contains an invalid timed-access rule ID.");
+                        }
+
+                        try
+                        {
+                            rules.Add(new TimedAccessRule(
+                                ruleId,
+                                reader.GetString(1),
+                                reader.GetInt32(2) != 0,
+                                reader.GetString(3),
+                                reader.GetInt32(4) != 0));
+                        }
+                        catch (ArgumentException exception)
+                        {
+                            throw new InvalidDataException("The database contains an invalid timed-access rule.", exception);
+                        }
+                    }
+                }
+            }
+
+            return rules;
         }
 
         private void Initialize()
@@ -616,6 +850,78 @@ namespace WebBlocker.Persistence
                             }
 
                             schemaVersion = 2;
+                        }
+                        else if (schemaVersion == 2)
+                        {
+                            using (var migration = CreateCommand(connection, transaction,
+                                "ALTER TABLE AccessEvents RENAME TO AccessEventsV2;" +
+                                "CREATE TABLE AccessEvents (" +
+                                "EventId TEXT NOT NULL PRIMARY KEY, " +
+                                "OccurredAtUtc TEXT NOT NULL, " +
+                                "Domain TEXT NOT NULL, " +
+                                "Method TEXT NOT NULL, " +
+                                "Result INTEGER NOT NULL CHECK (Result IN (0, 1, 2, 3)), " +
+                                "MatchedRuleId TEXT NULL, " +
+                                "PolicyVersion INTEGER NOT NULL CHECK (PolicyVersion >= 1));" +
+                                "INSERT INTO AccessEvents " +
+                                "(EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion) " +
+                                "SELECT EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion " +
+                                "FROM AccessEventsV2;" +
+                                "DROP TABLE AccessEventsV2;" +
+                                "CREATE INDEX IX_AccessEvents_OccurredAtUtc ON AccessEvents (OccurredAtUtc DESC, EventId DESC);" +
+                                "CREATE INDEX IX_AccessEvents_Domain ON AccessEvents (Domain);" +
+                                "CREATE TABLE TimedAccessCategories (" +
+                                "Name TEXT NOT NULL PRIMARY KEY COLLATE NOCASE, " +
+                                "TimeLimitMinutes INTEGER NOT NULL CHECK (TimeLimitMinutes BETWEEN 1 AND 1440));" +
+                                "CREATE TABLE TimedAccessRules (" +
+                                "RuleId TEXT NOT NULL PRIMARY KEY, " +
+                                "Domain TEXT NOT NULL, " +
+                                "IncludeSubdomains INTEGER NOT NULL CHECK (IncludeSubdomains IN (0, 1)), " +
+                                "Category TEXT NOT NULL COLLATE NOCASE, " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)), " +
+                                "UNIQUE (Domain, IncludeSubdomains), " +
+                                "FOREIGN KEY (Category) REFERENCES TimedAccessCategories (Name));" +
+                                "CREATE TABLE PolicyVersionTimedAccessCategories (" +
+                                "Version INTEGER NOT NULL, " +
+                                "Name TEXT NOT NULL COLLATE NOCASE, " +
+                                "TimeLimitMinutes INTEGER NOT NULL CHECK (TimeLimitMinutes BETWEEN 1 AND 1440), " +
+                                "PRIMARY KEY (Version, Name), " +
+                                "FOREIGN KEY (Version) REFERENCES PolicyVersions (Version) ON DELETE CASCADE);" +
+                                "CREATE TABLE PolicyVersionTimedAccessRules (" +
+                                "Version INTEGER NOT NULL, " +
+                                "RuleId TEXT NOT NULL, " +
+                                "Domain TEXT NOT NULL, " +
+                                "IncludeSubdomains INTEGER NOT NULL CHECK (IncludeSubdomains IN (0, 1)), " +
+                                "Category TEXT NOT NULL COLLATE NOCASE, " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)), " +
+                                "Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0), " +
+                                "PRIMARY KEY (Version, RuleId), " +
+                                "UNIQUE (Version, Ordinal), " +
+                                "UNIQUE (Version, Domain, IncludeSubdomains), " +
+                                "FOREIGN KEY (Version) REFERENCES PolicyVersions (Version) ON DELETE CASCADE);" +
+                                "CREATE TABLE TimedAccessWindows (" +
+                                "Category TEXT NOT NULL COLLATE NOCASE, " +
+                                "LocalDate TEXT NOT NULL, " +
+                                "StartedAtUtc TEXT NOT NULL, " +
+                                "ExpiresAtUtc TEXT NOT NULL, " +
+                                "PRIMARY KEY (Category, LocalDate));"))
+                            {
+                                migration.ExecuteNonQuery();
+                            }
+
+                            schemaVersion = 3;
+                        }
+                        else if (schemaVersion == 3)
+                        {
+                            using (var migration = CreateCommand(connection, transaction,
+                                "ALTER TABLE AccessEvents ADD COLUMN RequestedUrl TEXT NULL;" +
+                                "ALTER TABLE AccessEvents ADD COLUMN DestinationPort INTEGER NULL " +
+                                "CHECK (DestinationPort IS NULL OR DestinationPort BETWEEN 1 AND 65535);"))
+                            {
+                                migration.ExecuteNonQuery();
+                            }
+
+                            schemaVersion = 4;
                         }
                         else
                         {

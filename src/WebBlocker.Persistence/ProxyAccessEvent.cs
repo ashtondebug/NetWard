@@ -6,7 +6,8 @@ namespace WebBlocker.Persistence
     {
         AllowedByPolicy = 0,
         BlockedByPolicy = 1,
-        BlockPageFailure = 2
+        BlockPageFailure = 2,
+        BlockedByTimeLimit = 3
     }
 
     public sealed class ProxyAccessEvent
@@ -18,7 +19,9 @@ namespace WebBlocker.Persistence
             string method,
             ProxyAccessResult result,
             Guid? matchedRuleId,
-            long policyVersion)
+            long policyVersion,
+            string requestedUrl = null,
+            int? destinationPort = null)
         {
             if (eventId == Guid.Empty)
             {
@@ -37,7 +40,8 @@ namespace WebBlocker.Persistence
 
             if (result != ProxyAccessResult.AllowedByPolicy &&
                 result != ProxyAccessResult.BlockedByPolicy &&
-                result != ProxyAccessResult.BlockPageFailure)
+                result != ProxyAccessResult.BlockPageFailure &&
+                result != ProxyAccessResult.BlockedByTimeLimit)
             {
                 throw new ArgumentOutOfRangeException("result");
             }
@@ -54,6 +58,14 @@ namespace WebBlocker.Persistence
             Result = result;
             MatchedRuleId = matchedRuleId;
             PolicyVersion = policyVersion;
+            RequestedUrl = NormalizeRequestedUrl(requestedUrl);
+            if (destinationPort.HasValue &&
+                (destinationPort.Value < 1 || destinationPort.Value > 65535))
+            {
+                throw new ArgumentOutOfRangeException("destinationPort");
+            }
+
+            DestinationPort = destinationPort;
         }
 
         public Guid EventId { get; private set; }
@@ -69,6 +81,10 @@ namespace WebBlocker.Persistence
         public Guid? MatchedRuleId { get; private set; }
 
         public long PolicyVersion { get; private set; }
+
+        public string RequestedUrl { get; private set; }
+
+        public int? DestinationPort { get; private set; }
 
         public bool IsBlocked
         {
@@ -94,6 +110,26 @@ namespace WebBlocker.Persistence
             }
 
             return method.ToUpperInvariant();
+        }
+
+        private static string NormalizeRequestedUrl(string requestedUrl)
+        {
+            if (requestedUrl == null)
+            {
+                return null;
+            }
+
+            Uri uri;
+            if (requestedUrl.Length > 32768 ||
+                !Uri.TryCreate(requestedUrl, UriKind.Absolute, out uri) ||
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                uri.UserInfo.Length != 0 ||
+                uri.Fragment.Length != 0)
+            {
+                throw new ArgumentException("The requested URL must be a valid HTTP URL without credentials or a fragment.", "requestedUrl");
+            }
+
+            return requestedUrl;
         }
     }
 }

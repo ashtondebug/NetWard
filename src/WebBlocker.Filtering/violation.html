@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#0866e8">
+  <title>访问已阻断 - NetWard 网界卫士</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      background: #073b82;
+      color: #fff;
+      font-synthesis: none;
+      -webkit-font-smoothing: antialiased;
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; }
+    body {
+      min-width: 280px;
+      min-height: 100vh;
+      min-height: 100dvh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: clamp(32px, 8vh, 88px) clamp(22px, 6vw, 80px);
+      background:
+        radial-gradient(ellipse at 50% 5%, rgba(35, 115, 224, .45), transparent 58%),
+        linear-gradient(145deg, #082f68, #061f49 72%);
+    }
+    main {
+      width: min(100%, 1120px);
+      min-height: min(760px, 84vh);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .eyebrow {
+      margin: 0 0 24px;
+      color: rgba(255, 255, 255, .78);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .22em;
+    }
+    h1 {
+      max-width: 1100px;
+      margin: 0;
+      font-size: clamp(34px, 6.6vw, 70px);
+      line-height: 1.4;
+      font-weight: 700;
+      letter-spacing: .025em;
+      overflow-wrap: anywhere;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, .18);
+    }
+    .contact {
+      margin: 14px 0 0;
+      font-size: clamp(28px, 5vw, 54px);
+      line-height: 1.5;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+    .divider {
+      width: 72px;
+      height: 3px;
+      margin: 34px auto 0;
+      background: rgba(255, 255, 255, .72);
+      border-radius: 99px;
+    }
+    .evidence {
+      margin: clamp(42px, 9vh, 84px) 0 0;
+      font-size: clamp(21px, 3.2vw, 32px);
+      line-height: 1.6;
+      font-weight: 650;
+    }
+    .details {
+      max-width: 900px;
+      margin: 12px 0 0;
+      color: rgba(255, 255, 255, .82);
+      font-size: clamp(14px, 2vw, 18px);
+      line-height: 1.9;
+      overflow-wrap: anywhere;
+    }
+    footer {
+      margin-top: auto;
+      padding-top: 64px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: .12em;
+    }
+    @media (max-width: 600px) {
+      main { min-height: 78vh; }
+      .contact { margin-top: 20px; }
+      .evidence { margin-top: 60px; }
+      footer { padding-top: 48px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">NETWARD 网界卫士 · 安全策略执行中</p>
+    <h1>此计算机因访问违规内容已被阻断</h1>
+    <p class="contact">请等待管理人员与你联系</p>
+    <div class="divider" aria-hidden="true"></div>
+    <p class="evidence">本次违规访问已记录</p>
+    <p class="details">
+      HTTP 请求的完整网址、访问时间、主机名、请求方式和策略结果已记录。<br>
+      HTTPS 仅能看到目标主机和端口；当前未采集 IP 地址或 Windows 用户名。
+    </p>
+    <footer>NETWARD 网界卫士</footer>
+  </main>
+</body>
+</html>

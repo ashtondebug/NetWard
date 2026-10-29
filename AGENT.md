@@ -1,8 +1,8 @@
-# WebBlocker — Windows 局域网网页访问管控系统
+# NetWard 网界卫士 — Windows 局域网网页访问管控系统
 
 ## 一、项目概述
 
-你现在需要负责一个名为 WebBlocker 的 Windows 桌面软件项目。
+你现在需要负责一个名为 NetWard 网界卫士（原名 WebBlocker）的 Windows 桌面软件项目。
 
 这不是一个简单的网页黑名单工具，而是一套由管理端和被控端组成的、面向局域网环境的 Windows 网页访问管控系统。
 
@@ -14,9 +14,9 @@
 
 ### 1.1 项目名称
 
-中文名称：网页访问安全管家
+中文名称：NetWard 网界卫士
 
-英文名称：WebBlocker
+英文名称：NetWard
 
 项目目录：
 
@@ -34,7 +34,7 @@ D:\Dev\Web_Blocker
 
 **程序一：管理端**
 
-英文名称：WebBlocker Administrator
+英文名称：NetWard Administrator
 
 负责管理所有已经授权接入的被控设备。
 
@@ -42,7 +42,7 @@ D:\Dev\Web_Blocker
 
 **程序二：被控端**
 
-英文名称：WebBlocker Agent
+英文名称：NetWard Agent
 
 运行在需要实施网页访问管控的 Windows 计算机上。
 
@@ -1235,8 +1235,8 @@ HTML 主要用于被控端拦截提示页面，以及在确有需要时提供辅
 
 至少提供：
 
-- WebBlocker Administrator.exe。
-- WebBlocker Agent.exe。
+- NetWard.Administrator.exe。
+- NetWard.Agent.exe。
 - 被控端安装程序。
 - 被控端正常卸载程序。
 - 管理端安装程序或独立运行包。
@@ -1788,4 +1788,4 @@ D:\Dev\Web_Blocker
 
 如果某项功能受 Windows 7、浏览器技术或系统权限限制，应主动说明原因，评估替代方案，并在文档中明确记录。
 
-最终目标是交付一套真正可安装、可运行、可管理多台 Windows 计算机、具有真实网页访问控制能力的 WebBlocker 系统，而不是一个只能演示界面的原型。
+最终目标是交付一套真正可安装、可运行、可管理多台 Windows 计算机、具有真实网页访问控制能力的 NetWard 网界卫士系统，而不是一个只能演示界面的原型。
