@@ -22,6 +22,19 @@ The proxy filters only applications explicitly configured to use it. It does not
 
 The target framework is .NET Framework 4.8. Although it can be installed on Windows 7 SP1, this project has not been tested on Windows 7; Windows 10/11 compatibility also requires validation on actual supported devices. Application-independent filtering, kiosk launch/exit, installer/uninstaller, and a tested recovery path remain open engineering work. No network settings, drivers, or system policies have been installed or changed.
 
+## Owner-requested product requirements
+
+The full requirements and current implementation status are maintained in [Product requirements and implementation status](docs/product-requirements.md). Highlights contributors should preserve:
+
+- Allowlist/blocklist policies plus category-based, daily continuous wall-clock timed access. Expiry blocks access and uses a separate timeout page; closing the browser does not pause the chosen timer.
+- “申请访问” with the attempted HTTP URL prefilled and a reason. The intended administrator workflow is a Windows notification with allow-until-expiry, deny, or time-bounded ignore/suppression for repeated requests from the same endpoint/target. This workflow is **not implemented**.
+- Adult/gambling site categories based only on reviewed, owner-supplied Markdown lists. Current switches are disabled placeholders; do not invent lists or imply protection is active.
+- Required audit roadmap: endpoint IP, complete URL where technically observable, interactive Windows username, browsing duration, access context, and 30-day retention. HTTPS CONNECT currently exposes hostname/port only; IP, Windows username, and browsing duration are not yet captured.
+- A distinct, prominent violation notice, no webcam use, truthful evidence/audit copy, and a no-confirmation fullscreen goal implemented through a managed kiosk session. Requested browser order is Edge, Chrome, then default browser; the last fallback cannot guarantee kiosk fullscreen. Kiosk exit must be administrator-authorized with a legitimate recovery path.
+- Windows-oriented management UI targeting Windows 7/10/11, with actual compatibility claims limited to versions tested on real systems.
+
+These are product requirements, not a declaration that all features currently work. The requirement document and [roadmap](docs/roadmap.md) mark implementation gaps explicitly.
+
 ## Run the explicit proxy
 
 The proxy changes no Windows proxy, DNS, firewall, or network settings. An administrator must explicitly configure an application to use `127.0.0.1:18080`; other traffic bypasses it. The product and executable names are NetWard, while the existing `%LOCALAPPDATA%\WebBlocker` database directory is retained for compatibility with existing user data.
@@ -69,6 +82,7 @@ dotnet build .\NetWard.sln --configuration Release
 
 - [Architecture and implementation status](docs/architecture.md)
 - [Development roadmap and next TODOs](docs/roadmap.md)
+- [Owner-requested product requirements and status](docs/product-requirements.md)
 - [Contribution guide](CONTRIBUTING.md)
 - [Security design and risks](docs/security.md)
 - [Windows compatibility](docs/compatibility.md)

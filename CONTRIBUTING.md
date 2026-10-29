@@ -4,7 +4,7 @@ Thank you for helping improve NetWard 网界卫士. The project is an early Wind
 
 ## Before starting
 
-1. Read [README.md](./README.md), [the architecture and implementation status](./docs/architecture.md), and [the security design](./docs/security.md).
+1. Read [README.md](./README.md), [the complete owner-requested requirements and current status](./docs/product-requirements.md), [the architecture and implementation status](./docs/architecture.md), and [the security design](./docs/security.md).
 2. Check [the development roadmap](./docs/roadmap.md) and existing issues before starting overlapping work.
 3. For substantial architectural changes, filtering mechanisms, identity collection, kiosk behavior, or system configuration, open an issue or proposal first. Explain the Windows versions, privileges, bypass cases, user notice, rollback, and recovery path.
 
@@ -29,8 +29,14 @@ The test script builds the solution, runs policy/persistence/proxy integration t
 - Add or update tests for behavior, persistence, schema migrations, and failure cases.
 - Update README, architecture, security, installation, or compatibility documentation whenever observable behavior or limitations change.
 - Never claim complete device-wide enforcement, HTTPS URL visibility, a trusted administrator identity, kiosk recovery, or Windows-version support without implementation and corresponding tests.
+- Preserve the owner's requested product behavior documented in [`docs/product-requirements.md`](./docs/product-requirements.md); if a requirement conflicts with browser/OS security constraints, document the boundary and propose a consented, recoverable architecture rather than faking the behavior.
 - Do not add domain-category lists from guesswork. Category data must come from an owner-provided, reviewed source and include provenance and update expectations.
 - Treat HTTP URL paths and query strings as sensitive. Do not collect credentials, cookies, page contents, or form data.
+- The owner explicitly decided not to use the webcam. Do not add camera or screen capture, and do not claim evidence was collected when it was not.
+- The requested audit fields include endpoint IP, complete URL where observable, interactive Windows username, browsing duration, and 30-day retention. HTTPS paths, the real device identity behind the loopback proxy, and meaningful browsing duration require additional approved instrumentation; disclose unavailable values instead of fabricating them.
+- Access-request functionality is expected to include endpoint/reason/attempted-URL context; Windows administrator notifications; allow with expiry, deny, and duration-based ignore/deduplication. Keep the form clearly marked as nonfunctional until authenticated transport and review UI exist.
+- The requested fullscreen flow is a managed kiosk session launched before browsing, with Edge then Chrome preference and a default-browser fallback that may not be fullscreen. A legitimate administrator exit and tested recovery are mandatory.
+- Adapt the Windows management experience for the requested Windows 7/10/11 targets, but claim compatibility only after testing each supported OS/browser combination.
 - Do not add TLS interception, WFP drivers, firewall/DNS/hosts changes, service installation, persistence hooks, or restrictions on user recovery without an approved security design, explicit authorization, and a tested uninstall/recovery plan.
 - Do not commit credentials, private keys, tokens, personal data, build output, or local databases.
 - Preserve existing user data and unrelated worktree changes. Use sequential, transactional SQLite migrations and test upgrades from supported older schemas.
