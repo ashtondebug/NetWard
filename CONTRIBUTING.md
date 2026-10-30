@@ -4,7 +4,7 @@ Thank you for helping improve NetWard 网界卫士. The project is an early Wind
 
 ## Before starting
 
-1. Read [README.md](./README.md), [the complete owner-requested requirements and current status](./docs/product-requirements.md), [the architecture and implementation status](./docs/architecture.md), and [the security design](./docs/security.md).
+1. Read [README.md](./README.md), [the documentation index](./docs/README.md), [the complete owner-requested requirements and current status](./docs/product-requirements.md), [the architecture and implementation status](./docs/architecture.md), and [the security design](./docs/security.md).
 2. Check [the development roadmap](./docs/roadmap.md) and existing issues before starting overlapping work.
 3. For substantial architectural changes, filtering mechanisms, identity collection, kiosk behavior, or system configuration, open an issue or proposal first. Explain the Windows versions, privileges, bypass cases, user notice, rollback, and recovery path.
 
@@ -40,6 +40,7 @@ The test script builds the solution, runs policy/persistence/proxy integration t
 - Do not add TLS interception, WFP drivers, firewall/DNS/hosts changes, service installation, persistence hooks, or restrictions on user recovery without an approved security design, explicit authorization, and a tested uninstall/recovery plan.
 - Do not commit credentials, private keys, tokens, personal data, build output, or local databases.
 - Preserve existing user data and unrelated worktree changes. Use sequential, transactional SQLite migrations and test upgrades from supported older schemas.
+- The repository currently has no declared open-source license. Do not copy third-party code or imply reuse rights; keep any proposed license change separate for owner review.
 
 ## Pull requests
 

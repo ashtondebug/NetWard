@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reorganized the README around the project overview, capability/status matrix, quick start, component map, architecture/privacy boundaries, documentation index, and contribution entry point; added a complete docs index and aligned the public requirements summary.
 - Renamed the product and Visual Studio solution to NetWard 网界卫士; updated app metadata, executable names, window/CLI titles, and HTML branding while keeping legacy code namespaces and local data paths stable.
 - Initialized the Windows 7-aware project structure and documented the current architecture and filtering limitations.
 - Added a .NET Framework 4.8 domain-policy engine with IDN normalization, strict hostname validation, exact/subdomain matching, duplicate detection, and whitelist/blacklist evaluation.
