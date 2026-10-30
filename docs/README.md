@@ -11,7 +11,7 @@
 
 ## 产品范围与进度
 
-- [产品需求与实现状态](product-requirements.md)：所有者提出的策略、限时访问、申请访问、分类保护、审计、kiosk、Windows UI/兼容性及安全要求。
+- [产品需求与实现状态](product-requirements.md)：所有者提出的双版本产品方向、策略、限时访问、申请访问、分类保护、审计、kiosk、Windows UI/兼容性及安全要求。
 - [开发路线图](roadmap.md)：已验证的原型里程碑、下一步优先级、外部依赖和当前发布边界。
 - [版本变更记录](../CHANGELOG.md)：按版本/阶段记录的实现变更。
 - [项目指令与验收标准](../AGENT.md)：项目总体开发原则和验收要求。
@@ -22,7 +22,7 @@
 - [安全设计与风险](security.md)：授权、数据保护、代理边界与未来安全控制。
 - [通信协议方向](protocol.md)：尚未实现的配对、消息、身份验证及可靠传输需求。
 - [WFP 可行性评估](wfp-feasibility.md)：系统级过滤方案、兼容性与恢复风险。
-- [Windows 兼容性](compatibility.md)：目标 Windows 版本与实际验证状态。
+- [Windows 兼容性](compatibility.md)：Legacy/Modern 两条版本线的目标 Windows 版本与实际验证状态。
 
 ## 当前状态摘要
 

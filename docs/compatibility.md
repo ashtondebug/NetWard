@@ -2,9 +2,9 @@
 
 ## Target baseline
 
-- Minimum planned OS: Windows 7 SP1, x86 and x64.
-- Planned managed runtime: .NET Framework 4.8, not 4.8.1.
-- Proposed UI: WinForms.
+- **Legacy edition (both Administrator and Agent):** minimum planned OS Windows 7 SP1, x86 and x64; .NET Framework 4.8 where applicable; retain the current desktop UI style. The current WinForms administrator is only a local prototype, not a validated Legacy release.
+- **Modern edition (both Administrator and Agent):** native WinUI 3 UI. The minimum Windows build, Windows App SDK/runtime version, .NET target, architectures, and package/deployment prerequisites are undecided and require validation before implementation.
+- No Windows 7 compatibility is promised for the Modern edition. A higher Modern OS floor must not change the Legacy floor.
 - Windows 7 support is a target, not a test result. Windows 7 is out of support.
 
 Microsoft's [.NET Framework system requirements](https://learn.microsoft.com/en-us/dotnet/framework/get-started/system-requirements) list Windows 7 SP1 (32-bit and 64-bit) for separately installing .NET Framework 4.8. They do not list .NET Framework 4.8.1 for Windows 7. A Windows 7 release must therefore target 4.8 and document installer prerequisites; machines without SP1 or the required servicing updates are not assumed compatible.
@@ -29,7 +29,7 @@ The build uses the NuGet .NET Framework reference-assemblies package rather than
 
 ## Required validation matrix
 
-Before calling a release Windows 7 compatible, test on clean Windows 7 SP1 x86 and x64 virtual machines, with each required servicing/runtime prerequisite documented:
+Before calling a **Legacy** release Windows 7 compatible, test on clean Windows 7 SP1 x86 and x64 virtual machines, with each required servicing/runtime prerequisite documented:
 
 - Installer, first run, GUI, file permissions, and ordinary uninstall.
 - .NET Framework 4.8 availability and TLS certificate validation.
@@ -39,3 +39,7 @@ Before calling a release Windows 7 compatible, test on clean Windows 7 SP1 x86 a
 - Crash recovery, fail-closed behavior, diagnostics, and emergency restoration.
 
 None of these Windows 7 tests have been run.
+
+Before declaring the **Modern** edition supported, select its exact WinUI 3 / Windows App SDK and runtime versions, then test on a clean machine/VM at the exact minimum supported Windows build and on each additionally declared Windows version. Validate installation/package prerequisites, first run, update/rollback, UI behavior, accessibility, network/protocol behavior, crash recovery, and uninstall. No Modern-edition compatibility tests have been run because that edition has not been implemented.
+
+Before publishing a combined edition matrix, test all manager/agent pairings that will be supported (Legacy-to-Legacy, Modern-to-Modern, and any cross-edition pairings). A successful build or an OS/framework vendor support statement is not a substitute for application-level testing.

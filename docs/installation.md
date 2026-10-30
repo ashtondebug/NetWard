@@ -8,7 +8,7 @@ There are no installable administrator/agent applications or Windows services ye
 
 - Windows and .NET SDK 9.0.
 - Internet access to restore `Microsoft.NETFramework.ReferenceAssemblies` from NuGet on the first build.
-- .NET Framework 4.8 or later installed to execute the programs.
+- .NET Framework 4.8 installed to execute the current prototype. For the planned Legacy edition's Windows 7 SP1 target, retain .NET Framework 4.8; do not assume .NET Framework 4.8.1 supports Windows 7.
 - NuGet restore access to `System.Data.SQLite.Core` and its native x86/x64 interop assets.
 
 Build and run policy tests from the project root:
@@ -18,7 +18,7 @@ dotnet build .\NetWard.sln --configuration Release
 .\scripts\test.ps1
 ```
 
-The reference assemblies are build-time dependencies; the policy library targets .NET Framework 4.8. The build does not install a runtime or alter system environment settings.
+The reference assemblies are build-time dependencies; the current policy library targets .NET Framework 4.8. The build does not install a runtime or alter system environment settings. The planned Modern edition uses WinUI 3 and does not yet have a selected Windows App SDK/runtime or OS baseline.
 
 ## Local policy manager
 

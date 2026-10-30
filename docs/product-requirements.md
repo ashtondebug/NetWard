@@ -6,9 +6,14 @@ This document records the product requirements requested by the project owner so
 
 - Product name: **NetWard 网界卫士** (English: **NetWard**).
 - The intended product has two separately identifiable Windows applications: a management application and an endpoint agent. Both should be distributable as Windows executables.
+- Each application is to have two editions: a **Legacy edition** for older computers and a **Modern edition** for newer supported Windows computers. This means separate legacy/modern builds of both the administrator and agent, not one edition per role.
+- Legacy edition minimum target: **Windows 7 SP1**, retaining the current desktop UI style. The existing WinForms administrator is the starting point for this visual line; Windows 7 compatibility remains unverified until tested on the required x86/x64 environments.
+- Modern edition: use **WinUI 3** for native Windows desktop UI and take visual direction from the website's clearly labeled policy-dashboard illustration. That illustration is only a design reference, not a software screenshot or a final UI specification. The exact minimum Windows build, Windows App SDK/runtime version, packaging model, and supported architectures must be confirmed before implementation; do not extend the Windows 7 promise to this edition.
+- Both editions must represent the same product roles, policy semantics, consent/security requirements, and device identity model. Their UI and deployment stacks may differ. Protocol compatibility between legacy and modern administrator/agent builds is a separate requirement that must be explicitly specified and tested; do not assume every cross-edition pairing will work.
+- Shared business rules and wire contracts should be kept independent of either UI. Reuse a binary only when its target frameworks and operating-system dependencies permit it; otherwise share source/contracts or generated protocol definitions without raising the Legacy edition's runtime/OS floor.
 - Intended environments include authorized shared Windows computers in schools, government offices, and similar organizations. Deployment requires approval from the device owner or an authorized administrator, a visible program identity, clear user notice, and legitimate recovery/uninstall.
 - One management installation should ultimately manage multiple authorized endpoints. Policies, identities, audit records, authorizations, and online state must be isolated per endpoint.
-- The current repository is an early prototype: a local policy UI and an explicitly configured loopback proxy. There is no endpoint agent, remote management, or system-wide enforcement.
+- Current repository status: only the local WinForms policy-manager slice and an explicitly configured loopback proxy exist. There are no Legacy/Modern release lines yet, no endpoint agent, no remote management, and no system-wide enforcement.
 
 ## Access policies and time-limited access
 
@@ -74,19 +79,22 @@ Implementation constraints contributors must preserve:
 
 ## Full-screen experience and Windows UI
 
+- Product editions: retain the existing Windows desktop UI style for the Legacy edition (Windows 7 SP1 minimum target); build the Modern edition's native desktop UI with WinUI 3, using the website policy-dashboard illustration as visual inspiration. Both the administrator and endpoint agent need each edition. The Legacy and Modern UI implementations are not to be conflated into one runtime or treated as an OS compatibility guarantee.
+- Before Modern UI implementation, verify the selected WinUI 3 / Windows App SDK version's supported Windows builds, runtime prerequisites, architecture, accessibility behavior, and packaging/deployment model. The Modern edition minimum OS remains **to be decided and verified**; Windows 7 SP1 is only the Legacy target.
+- Define the manager/agent compatibility matrix across editions before release. At minimum, protocol version negotiation, unsupported-version errors, safe upgrade/downgrade behavior, and policy/data compatibility must be explicit and tested. A UI redesign must not change policy behavior or silently migrate/overwrite shared data.
 - The owner requires the violation page to appear fullscreen automatically, without asking the endpoint user to confirm.
 - A normal web page cannot reliably force the already-running browser into fullscreen after navigation without a browser gesture. The intended approach is to launch a visible, controlled kiosk browsing session before browsing starts; a violation page in that session is already fullscreen.
 - Requested browser preference: **Microsoft Edge**, then **Google Chrome**, then the Windows default browser. The default-browser fallback may not support kiosk mode and therefore cannot guarantee fullscreen; this limitation must be visible to administrators.
 - The owner requested administrator-authorized/password-protected kiosk exit. No administrator authentication/password provisioning exists yet. Do not implement a lock-in, hidden persistence, or a recovery-blocking mechanism. First provide authenticated administration, visible setup, safe exit/recovery, and uninstall.
-- The management UI should use Windows-native conventions and adapt to the target Windows version (Windows 7, Windows 10, and Windows 11). Do not claim testing on a version that has not been tested on actual supported devices.
-- Current status: there is no endpoint kiosk launcher, kiosk session, administrator exit authentication, or tested kiosk recovery.
+- The Legacy management UI should use the current desktop UI style and target Windows 7 SP1 and later versions in its declared matrix. The Modern management UI should use WinUI 3 and follow the Modern edition's separately verified OS floor. Do not claim testing on a version that has not been tested on actual supported devices.
+- Current status: there is no endpoint kiosk launcher, kiosk session, administrator exit authentication, tested kiosk recovery, or implemented two-edition delivery.
 
 ## Security, consent, and compatibility
 
 - Pairing must be explicit and owner/admin-consented. Use authenticated, encrypted communication with revocation, rate limits, protocol versioning, replay/idempotency handling, and per-device isolation.
 - Never hide the program, misrepresent collection, bypass OS security controls, or prevent legitimate owners/admins from recovering or uninstalling it.
 - Do not add a driver, WFP filter, firewall/DNS/hosts changes, proxy auto-configuration, service installation, or startup persistence without an approved security design, explicit authorization, Windows-version assessment, and tested rollback/uninstall.
-- The target framework is .NET Framework 4.8; Windows 7 SP1 remains a requested compatibility target but is not validated in this development environment. The expected support matrix includes Windows 7, 10, and 11 only after real testing.
+- The Legacy edition's target framework is .NET Framework 4.8; Windows 7 SP1 remains a requested compatibility target but is not validated in this development environment. The Modern edition is planned for WinUI 3; its runtime, Windows App SDK version, and minimum Windows build are not yet selected. Windows 10/11 support must be validated separately for each edition and application.
 - The current explicit proxy is opt-in and bypassable. It is not system-wide access control.
 
 ## Current acceptance boundary

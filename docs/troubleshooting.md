@@ -6,7 +6,7 @@ The first build needs NuGet access to restore `Microsoft.NETFramework.ReferenceA
 
 ## Test executable will not start
 
-The test program targets .NET Framework 4.8. Install the supported .NET Framework runtime for this development machine or run on a Windows machine with .NET Framework 4.8 or later. This does not imply Windows 7 has been tested.
+The test program targets .NET Framework 4.8. Install .NET Framework 4.8 or run it on a Windows machine with a compatible later in-place runtime. This does not imply Windows 7 has been tested. The planned Legacy edition must retain the .NET Framework 4.8 baseline for its Windows 7 SP1 target; the Modern WinUI 3 runtime baseline is not yet selected.
 
 ## Proxy cannot open the policy database
 
@@ -26,4 +26,4 @@ An allowed CONNECT tunnel does not inspect encrypted traffic. A successful proxy
 
 ## Windows 7 behavior
 
-Windows 7 compatibility is unverified. Consult [compatibility.md](compatibility.md); do not infer support from a successful build on Windows 10.
+Windows 7 compatibility is unverified and is a target only for the Legacy edition. The planned Modern edition has a separately determined Windows floor. Consult [compatibility.md](compatibility.md); do not infer support from a successful build on another Windows version.

@@ -6,7 +6,9 @@ No network listener, pairing flow, or remote-management protocol is implemented 
 
 ## Proposed first version
 
-Use an authenticated TLS transport over TCP with a versioned, length-bounded message envelope. Before choosing an HTTP API or raw TLS framing, verify the Windows 7/.NET Framework 4.8 certificate and TLS configuration against the actual deployment environment. Do not invent cryptography or treat a pairing code as a permanent secret.
+Use an authenticated TLS transport over TCP with a versioned, length-bounded message envelope. Verify TLS, certificate validation, and deployment behavior separately for the Legacy Windows 7 SP1/.NET Framework 4.8 target and the Modern edition's selected runtime/Windows App SDK baseline. Before choosing an HTTP API or raw TLS framing, test the actual deployment environments. Do not invent cryptography or treat a pairing code as a permanent secret.
+
+The protocol must not be coupled to either UI framework. Define explicit protocol-version negotiation and an administrator/agent compatibility matrix before promising Legacy-to-Modern interoperability. Unsupported pairings must fail clearly and safely; do not silently downgrade authentication or policy behavior.
 
 Every request should carry:
 

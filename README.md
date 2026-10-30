@@ -28,6 +28,7 @@ NetWard（网界卫士）旨在逐步发展为由**管理端**与**被控端**�
 | HTTPS 目标日志 | 部分可见 | 仅可见 CONNECT 主机名和端口；加密路径/查询不可见 |
 | 30 天日志留存 | 本地已实现 | 代理启动及运行时每小时清理；管理端启动时也清理 |
 | 设备 IP、交互式 Windows 用户名、浏览时长 | 未实现 | 需要经授权的端点身份与会话计时机制 |
+| 老机型版 / 最新支持版双版本交付 | 需求已确定，尚未实现 | 管理端和被控端各计划提供 Legacy 与 Modern 版本；Legacy 目标 Windows 7 SP1 并保留当前 UI 风格，Modern 计划使用 WinUI 3；两版操作系统底线、通信兼容矩阵和打包方案仍待验证 |
 | 远程配对、管理端通知、策略/日志同步 | 未实现 | 尚无认证设备通信协议或被控端程序 |
 | Kiosk 全屏及管理员授权退出 | 未实现 | 需先启动受控浏览会话；普通网页不能加载后自行强制全屏 |
 | 安装/卸载及系统级访问控制 | 未实现 | 不安装驱动、服务或系统网络配置 |
@@ -40,7 +41,7 @@ NetWard（网界卫士）旨在逐步发展为由**管理端**与**被控端**�
 
 - Windows。
 - .NET SDK 9.0（构建）。
-- .NET Framework 4.8 或更高版本（运行目标应用）。
+- .NET Framework 4.8（当前本地应用的目标；Legacy 版若支持 Windows 7 SP1，须保持 4.8 基线，不得将该兼容目标理解为 4.8.1）。
 - 首次构建需能从 NuGet 还原 .NET Framework 参考程序集及 SQLite 依赖。
 
 ### 构建并测试
@@ -136,6 +137,7 @@ tests/
   WebBlocker.Shared.Tests/
 docs/
 scripts/
+website/                 # Static product website and user guide
 ```
 
 ## 文档导航
@@ -153,6 +155,10 @@ scripts/
 - [故障排查](docs/troubleshooting.md)
 - [贡献指南](CONTRIBUTING.md)
 - [版本变更记录](CHANGELOG.md)
+
+## 产品官网
+
+静态产品官网源码位于 [`website/`](website/)。该目录包含产品介绍、明确区分当前实现与规划能力的使用文档，以及主题切换和响应式布局。如何本地预览、部署及更新仓库和开发者链接，请见[官网开发说明](website/README.md)。
 
 ## 协作与许可
 

@@ -15,6 +15,16 @@ The detailed, stable product contract is in [product requirements and implementa
 
 ## Next priorities
 
+### 0. Define and establish the Legacy / Modern editions
+
+- [ ] Keep Windows 7 SP1 as the minimum **target** for the Legacy edition of both Administrator and Agent; preserve the current desktop UI style and .NET Framework 4.8 floor where applicable. Do not describe this target as validated until clean Windows 7 SP1 x86/x64 testing is complete.
+- [ ] Build a Modern edition of both Administrator and Agent using native WinUI 3 UI. Use the website's policy-dashboard illustration as design inspiration only; do not present it as an application screenshot or reuse demonstration data as live product state.
+- [ ] Verify and select the WinUI 3 / Windows App SDK version, Modern minimum Windows build, .NET/runtime requirements, supported architectures, packaging model, prerequisites, servicing, and recovery/uninstall behavior.
+- [ ] Decide repository/project boundaries for the two editions and define which domain logic and protocol contracts can safely be shared without imposing Modern runtime/API requirements on Legacy.
+- [ ] Define and publish an administrator/agent compatibility matrix across editions, protocol negotiation and version errors, policy/schema compatibility, and supported upgrade/downgrade paths.
+- [ ] Add independent build/test and installation validation for Legacy and Modern Administrator/Agent. Test Legacy on Windows 7 SP1 x86/x64 and the declared later Windows matrix; test Modern only on its verified minimum and declared Windows versions.
+- [ ] Verify that equivalent workflows and security/accessibility behavior are consistent across both UIs; keep distinct native interaction patterns where appropriate.
+
 ### 1. Category list import and policy enforcement
 
 - [ ] Receive the owner-provided Markdown category files (pornography/gambling and any additional owner-specified categories); record source, version/date, and update process.

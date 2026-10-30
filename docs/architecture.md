@@ -4,14 +4,25 @@
 
 | Area | Decision | Status |
 |---|---|---|
-| NetWard administrator and agent desktop apps | C# / .NET Framework 4.8 / WinForms | NetWard-branded local policy-manager desktop slice implemented; remote device administration and agent UI not implemented |
-| Shared business logic | .NET Framework 4.8 class library | Started: domain normalization and policy evaluation |
+| Legacy administrator and agent edition | Current UI style; administrator's existing implementation is C# / .NET Framework 4.8 / WinForms | WinForms local policy-manager slice exists; no Legacy release line, endpoint agent, or Windows 7 validation |
+| Modern administrator and agent edition | Native WinUI 3 UI; runtime/package baseline to be selected after OS/deployment review | Planned only; no WinUI 3 project or Modern release |
+| Shared business logic and protocol contracts | UI/framework-neutral rules and versioned wire contract; reuse binaries only if compatible with both target frameworks | Domain normalization and policy evaluation currently target .NET Framework 4.8; cross-target reuse not established |
 | Network filtering | Loopback-only, explicitly configured HTTP proxy; WFP driver deferred pending feasibility gates | Proxy prototype implemented; assessment documented; no driver installed |
 | Device communication | Versioned, authenticated TLS protocol | Not implemented |
 | Persistence | SQLite with versioned schema, transactional policy updates, policy history/rollback, online backup, event retention, and timed-access windows | Schema v4 stores complete HTTP request URLs; local manager available; no remote synchronization |
 | Categorized-site controls | Administrator-selected category list backed by owner-provided domain data | Management tab shows adult/gambling placeholders; switches stay disabled until reviewed lists are imported; no category enforcement yet |
 
 Microsoft documents .NET Framework 4.8 as installable on Windows 7 SP1, both 32-bit and 64-bit. This does not mean that current hardware, TLS defaults, updates, or a future driver have been validated on Windows 7. See [Windows compatibility](compatibility.md).
+
+## Two-edition product architecture
+
+The product direction is two editions for **each** role: Legacy Administrator + Legacy Agent, and Modern Administrator + Modern Agent. The Legacy edition preserves the current desktop UI style and targets Windows 7 SP1 as its minimum OS. The Modern edition uses native WinUI 3 UI and takes visual inspiration from the website's policy-dashboard illustration. The illustration is not an implemented application screen.
+
+The Modern edition must not raise the Legacy edition's runtime or OS requirements. Before choosing its Windows App SDK/runtime and packaging model, verify the corresponding minimum Windows build, architecture support, prerequisites, update behavior, and deployment/recovery path. Its OS floor is currently undecided; Windows 10/11 must be tested separately rather than inferred from framework support.
+
+Separate UI projects may sit over shared domain behavior and a versioned network protocol. Keep policy meaning, consent, authorization, device isolation, logging disclosure, and recovery consistent across the two editions. Existing business logic targets .NET Framework 4.8, so a shared binary with a WinUI 3 application must not be assumed; multi-targeting or generated/shared contracts require a compatibility and test decision.
+
+The compatibility matrix must explicitly state whether Modern Administrator can manage Legacy Agent and vice versa. Protocol negotiation, unsupported-version behavior, persisted policy/schema compatibility, upgrades, downgrades, and rollback must be designed and tested before promising cross-edition support. The current repository has no pairing protocol implementation, agent, or release builds for either edition.
 
 ## Filtering assessment
 
