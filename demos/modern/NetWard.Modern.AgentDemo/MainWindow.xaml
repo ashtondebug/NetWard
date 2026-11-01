@@ -1,0 +1,159 @@
+<Window
+    x:Class="NetWard.Modern.AgentDemo.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="NetWard 被控&#x7AEF; · Modern Demo">
+    <Grid x:Name="RootGrid" Background="Transparent">
+        <Grid.Resources>
+        <ResourceDictionary>
+        <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Light">
+                <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F6F8FC" />
+                <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="PanelAltBrush" Color="#EBF1FA" />
+                <SolidColorBrush x:Key="BorderBrush" Color="#D5DDE8" />
+                <SolidColorBrush x:Key="TextBrush" Color="#182334" />
+                <SolidColorBrush x:Key="MutedBrush" Color="#58677D" />
+                <SolidColorBrush x:Key="BlueBrush" Color="#2C61C3" />
+                <SolidColorBrush x:Key="GreenBrush" Color="#087A55" />
+                <SolidColorBrush x:Key="AmberBrush" Color="#935B00" />
+                <SolidColorBrush x:Key="HeaderBrush" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#FFF4D9" />
+                <SolidColorBrush x:Key="WarningBorderBrush" Color="#E5C97D" />
+                <SolidColorBrush x:Key="C1D2D4B" Color="#E3EDFF" />
+                <SolidColorBrush x:Key="C202B3C" Color="#EFF2F6" />
+                <SolidColorBrush x:Key="C24457D" Color="#DDE9FF" />
+                <SolidColorBrush x:Key="C77869D" Color="#65758B" />
+                <SolidColorBrush x:Key="C8C9AAF" Color="#68778D" />
+                <SolidColorBrush x:Key="CBBD0FF" Color="#214C91" />
+                <SolidColorBrush x:Key="CD7E1F2" Color="#25364D" />
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Dark">
+                <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0B1020" />
+                <SolidColorBrush x:Key="PanelBrush" Color="#121B2F" />
+                <SolidColorBrush x:Key="PanelAltBrush" Color="#17233A" />
+                <SolidColorBrush x:Key="BorderBrush" Color="#2A3850" />
+                <SolidColorBrush x:Key="TextBrush" Color="#F3F6FB" />
+                <SolidColorBrush x:Key="MutedBrush" Color="#A5B2C7" />
+                <SolidColorBrush x:Key="BlueBrush" Color="#78A1FF" />
+                <SolidColorBrush x:Key="GreenBrush" Color="#64D3A3" />
+                <SolidColorBrush x:Key="AmberBrush" Color="#F2BD73" />
+                <SolidColorBrush x:Key="HeaderBrush" Color="#101827" />
+                <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#252316" />
+                <SolidColorBrush x:Key="WarningBorderBrush" Color="#5A4928" />
+                <SolidColorBrush x:Key="C1D2D4B" Color="#1D2D4B" />
+                <SolidColorBrush x:Key="C202B3C" Color="#202B3C" />
+                <SolidColorBrush x:Key="C24457D" Color="#24457D" />
+                <SolidColorBrush x:Key="C77869D" Color="#77869D" />
+                <SolidColorBrush x:Key="C8C9AAF" Color="#8C9AAF" />
+                <SolidColorBrush x:Key="CBBD0FF" Color="#BBD0FF" />
+                <SolidColorBrush x:Key="CD7E1F2" Color="#D7E1F2" />
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Default">
+                <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0B1020" />
+                <SolidColorBrush x:Key="PanelBrush" Color="#121B2F" />
+                <SolidColorBrush x:Key="PanelAltBrush" Color="#17233A" />
+                <SolidColorBrush x:Key="BorderBrush" Color="#2A3850" />
+                <SolidColorBrush x:Key="TextBrush" Color="#F3F6FB" />
+                <SolidColorBrush x:Key="MutedBrush" Color="#A5B2C7" />
+                <SolidColorBrush x:Key="BlueBrush" Color="#78A1FF" />
+                <SolidColorBrush x:Key="GreenBrush" Color="#64D3A3" />
+                <SolidColorBrush x:Key="AmberBrush" Color="#F2BD73" />
+                <SolidColorBrush x:Key="HeaderBrush" Color="#101827" />
+                <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#252316" />
+                <SolidColorBrush x:Key="WarningBorderBrush" Color="#5A4928" />
+                <SolidColorBrush x:Key="C1D2D4B" Color="#1D2D4B" />
+                <SolidColorBrush x:Key="C202B3C" Color="#202B3C" />
+                <SolidColorBrush x:Key="C24457D" Color="#24457D" />
+                <SolidColorBrush x:Key="C77869D" Color="#77869D" />
+                <SolidColorBrush x:Key="C8C9AAF" Color="#8C9AAF" />
+                <SolidColorBrush x:Key="CBBD0FF" Color="#BBD0FF" />
+                <SolidColorBrush x:Key="CD7E1F2" Color="#D7E1F2" />
+            </ResourceDictionary>
+        </ResourceDictionary.ThemeDictionaries>
+        <Style x:Key="PanelStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+        </Style>
+        </ResourceDictionary>
+        </Grid.Resources>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="64" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Border Grid.RowSpan="2" Background="{ThemeResource AppBackgroundBrush}" />
+        <Border Grid.Row="0" Background="{ThemeResource HeaderBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid Padding="24,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="11" VerticalAlignment="Center">
+                    <Border Width="34" Height="34" CornerRadius="10" Background="{ThemeResource C24457D}"><FontIcon Glyph="&#xE7F4;" FontSize="18" Foreground="{ThemeResource CBBD0FF}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="NetWard" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" /><TextBlock Text="被控&#x7AEF; · Modern Demo" FontSize="10" Foreground="{ThemeResource MutedBrush}" /></StackPanel>
+                </StackPanel>
+                <Button x:Name="ThemeButton" Grid.Column="1" Content="主题：跟随系&#x7EDF;" Margin="0,0,12,0"
+                        Padding="10,7" Background="Transparent" Foreground="{ThemeResource TextBrush}"
+                        BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" CornerRadius="7"
+                        Click="ThemeButton_Click" />
+                <Border Grid.Column="2" Padding="10,6" CornerRadius="6" Background="{ThemeResource WarningSurfaceBrush}" BorderBrush="{ThemeResource WarningBorderBrush}" BorderThickness="1" VerticalAlignment="Center"><TextBlock Text="本地界面演示" FontSize="11" Foreground="{ThemeResource AmberBrush}" /></Border>
+            </Grid>
+        </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="1000" HorizontalAlignment="Center" Padding="30,26,30,40" Spacing="18">
+                <StackPanel Spacing="7">
+                    <TextBlock Text="受控设备状&#x6001;" FontSize="26" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" />
+                    <TextBlock Text="体验被控&#x7AEF; Modern 版的预期信息层级。此演示不连接管理端、不执行过滤&#x3002;" FontSize="12" Foreground="{ThemeResource MutedBrush}" />
+                </StackPanel>
+                <Border Background="{ThemeResource WarningSurfaceBrush}" BorderBrush="{ThemeResource WarningBorderBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14,10">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="未配&#x5BF9; · 未启用过&#x6EE4;" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource AmberBrush}" />
+                        <TextBlock Text="以下主机名、策略和状态都是本地演示内容，不是真实设备身份或管理端下发结果&#x3002;"
+                                   TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource MutedBrush}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource PanelStyle}" Padding="22">
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Border Width="54" Height="54" CornerRadius="15" Background="{ThemeResource C1D2D4B}"><FontIcon Glyph="&#xE7F4;" FontSize="24" Foreground="{ThemeResource BlueBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5"><TextBlock Text="DEVICE ID · 示例标识" FontSize="10" CharacterSpacing="80" Foreground="{ThemeResource MutedBrush}" /><TextBlock Text="DEMO-ENDPOINT-01" FontFamily="Consolas" FontSize="17" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" /><TextBlock Text="设备名称与标识仅供界面演&#x793A;" FontSize="10" Foreground="{ThemeResource MutedBrush}" /></StackPanel>
+                        <Border Grid.Column="2" Padding="10,6" CornerRadius="7" Background="{ThemeResource WarningSurfaceBrush}" BorderBrush="{ThemeResource WarningBorderBrush}" BorderThickness="1" VerticalAlignment="Top"><TextBlock Text="未配&#x5BF9;" FontSize="11" Foreground="{ThemeResource AmberBrush}" /></Border>
+                    </Grid>
+                </Border>
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Style="{StaticResource PanelStyle}" Padding="20"><StackPanel Spacing="10"><TextBlock Text="管理端连&#x63A5;" FontSize="12" Foreground="{ThemeResource MutedBrush}" /><StackPanel Orientation="Horizontal" Spacing="9"><Ellipse Width="8" Height="8" Fill="{ThemeResource AmberBrush}" VerticalAlignment="Center" /><TextBlock Text="未连&#x63A5;" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource AmberBrush}" /></StackPanel><TextBlock Text="本演示没有网络连接功能&#x3002;" FontSize="10" Foreground="{ThemeResource MutedBrush}" /></StackPanel></Border>
+                    <Border Grid.Column="1" Style="{StaticResource PanelStyle}" Padding="20"><StackPanel Spacing="10"><TextBlock Text="访问控制" FontSize="12" Foreground="{ThemeResource MutedBrush}" /><StackPanel Orientation="Horizontal" Spacing="9"><Ellipse Width="8" Height="8" Fill="{ThemeResource C8C9AAF}" VerticalAlignment="Center" /><TextBlock Text="未启&#x7528;" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource MutedBrush}" /></StackPanel><TextBlock Text="不会更改系统网络或拦截请求&#x3002;" FontSize="10" Foreground="{ThemeResource MutedBrush}" /></StackPanel></Border>
+                </Grid>
+                <Border Style="{StaticResource PanelStyle}" Padding="22">
+                    <StackPanel Spacing="16">
+                        <Grid><StackPanel Spacing="5"><TextBlock Text="策略状&#x6001;" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" /><TextBlock Text="演示信息 · 无真实策略下&#x53D1;" FontSize="10" Foreground="{ThemeResource MutedBrush}" /></StackPanel><TextBlock Grid.Column="1" Text="本地示例" FontSize="10" Foreground="{ThemeResource AmberBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid>
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" />
+                        <Grid RowSpacing="13">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="策略模式" FontSize="11" Foreground="{ThemeResource MutedBrush}" /><TextBlock Grid.Column="1" Text="白名单（示例&#xFF09;" FontSize="11" Foreground="{ThemeResource TextBrush}" /></Grid>
+                            <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="已允许规则数" FontSize="11" Foreground="{ThemeResource MutedBrush}" /><TextBlock Grid.Column="1" Text="02 条（示例&#xFF09;" FontSize="11" Foreground="{ThemeResource TextBrush}" /></Grid>
+                            <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="上次同步" FontSize="11" Foreground="{ThemeResource MutedBrush}" /><TextBlock Grid.Column="1" Text="尚未同步" FontSize="11" Foreground="{ThemeResource TextBrush}" /></Grid>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource PanelStyle}" Padding="22">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="演示操作" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource TextBrush}" />
+                        <TextBlock Text="配对申请、策略刷新和日志上传尚未实现。此演示不会伪造一次成功连接或报告虚构的网络状态&#x3002;" TextWrapping="Wrap" FontSize="11" LineHeight="18" Foreground="{ThemeResource MutedBrush}" />
+                        <Button Content="查看未实现功能说&#x660E;" Click="Details_Click" HorizontalAlignment="Left" Background="{ThemeResource C202B3C}" Foreground="{ThemeResource CD7E1F2}" BorderThickness="1" BorderBrush="{ThemeResource BorderBrush}" Padding="14,9" CornerRadius="7" />
+                        <Border x:Name="AgentInfo" Visibility="Collapsed" Background="{ThemeResource PanelAltBrush}"
+                                BorderBrush="{ThemeResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14,10">
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Name="AgentInfoTitle" Text="功能说明" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource BlueBrush}" />
+                                <TextBlock x:Name="AgentInfoMessage" Text="管理端配对、策略接收、访问过滤和日志同步均未实现&#x3002;"
+                                           TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource MutedBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="NetWard Agent · Modern UI Demo · 无设备配对、无系统访问控制" HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource C77869D}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
