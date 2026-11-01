@@ -34,8 +34,7 @@ namespace WebBlocker.Filtering
         private readonly AccessEventStore _eventStore;
         private readonly long _policyVersion;
         private readonly IProxyDnsResolver _dnsResolver;
-        private readonly string _blockedPagePath;
-        private readonly string _timeoutPagePath;
+        private readonly BlockPageCatalog _pageCatalog;
         private readonly Func<DateTime> _localClock;
         private readonly SemaphoreSlim _clientSlots;
         private readonly ConcurrentDictionary<TcpClient, Task> _connections =
@@ -54,7 +53,8 @@ namespace WebBlocker.Filtering
             AccessEventStore eventStore = null,
             long policyVersion = 1,
             string timeoutPagePath = null,
-            Func<DateTime> localClock = null)
+            Func<DateTime> localClock = null,
+            BlockPageCatalog pageCatalog = null)
         {
             if (policy == null)
             {
@@ -85,8 +85,10 @@ namespace WebBlocker.Filtering
             _eventStore = eventStore;
             _policyVersion = policyVersion;
             _dnsResolver = dnsResolver ?? new SystemProxyDnsResolver();
-            _blockedPagePath = blockedPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "index.html");
-            _timeoutPagePath = timeoutPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "timeout.html");
+            _pageCatalog = pageCatalog ?? new BlockPageCatalog(
+                    blockedPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BlockPageCatalog.BlockFileName),
+                    timeoutPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BlockPageCatalog.TimeoutFileName),
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BlockPageCatalog.ViolationFileName));
             _localClock = localClock ?? (() => DateTime.Now);
             _clientSlots = new SemaphoreSlim(maximumConcurrentClients, maximumConcurrentClients);
             Port = port;
@@ -101,6 +103,15 @@ namespace WebBlocker.Filtering
             get { return _listener != null && _acceptTask != null && !_acceptTask.IsCompleted; }
         }
 
+        /// <summary>
+        /// Verifies that the bundled denial pages exist. Intended to run once at startup so a missing page
+        /// stops the host with a clear message instead of turning every denied request into an error.
+        /// </summary>
+        public void ValidateBlockPages()
+        {
+            ThrowIfDisposed();
+            _pageCatalog.Validate();
+        }
         public void Start()
         {
             ThrowIfDisposed();
@@ -288,43 +299,62 @@ namespace WebBlocker.Filtering
                 return;
             }
 
+                        // Blocked-content categories are evaluated first: a category match selects the distinct
+            // violation notice and wins over the base allowlist/blocklist result.
+            var categoryDecision = PolicyEvaluator.EvaluateCategory(_policy, request.Host);
             var decision = PolicyEvaluator.Evaluate(_policy, request.Host);
-            var timedRule = decision.IsAllowed
+            var timedRule = categoryDecision == null && decision.IsAllowed
                 ? PolicyEvaluator.FindTimedAccessRule(_policy, request.Host)
                 : null;
             TimedAccessWindow timedWindow = null;
             if (timedRule != null)
             {
-                var category = _policy.TimedAccessCategories.FirstOrDefault(item =>
+                var timedCategory = _policy.TimedAccessCategories.FirstOrDefault(item =>
                     string.Equals(item.Name, timedRule.Category, StringComparison.OrdinalIgnoreCase));
-                if (category == null)
+                if (timedCategory == null)
                 {
                     throw new InvalidDataException("A timed-access rule references a missing category.");
                 }
 
-                timedWindow = _eventStore.AuthorizeTimedAccess(category, _localClock());
+                timedWindow = _eventStore.AuthorizeTimedAccess(timedCategory, _localClock());
             }
 
             var eventId = Guid.NewGuid();
-            var isAllowed = decision.IsAllowed && (timedWindow == null || timedWindow.IsAllowed);
+            var isAllowed = categoryDecision == null &&
+                            decision.IsAllowed &&
+                            (timedWindow == null || timedWindow.IsAllowed);
             var result = isAllowed
                 ? ProxyAccessResult.AllowedByPolicy
-                : timedWindow != null && !timedWindow.IsAllowed
-                    ? ProxyAccessResult.BlockedByTimeLimit
-                    : ProxyAccessResult.BlockedByPolicy;
-            var matchedRuleId = result == ProxyAccessResult.BlockedByTimeLimit
-                ? (Guid?)timedRule.Id
-                : decision.MatchedRule == null ? (Guid?)null : decision.MatchedRule.Id;
-            _eventStore.RecordAccessEvent(new ProxyAccessEvent(
-                eventId,
-                DateTime.UtcNow,
-                request.Host,
-                request.Method,
-                result,
-                matchedRuleId,
-                _policyVersion,
-                request.RequestedUrl,
-                request.Port));
+                : categoryDecision != null
+                    ? ProxyAccessResult.BlockedByCategory
+                    : timedWindow != null && !timedWindow.IsAllowed
+                        ? ProxyAccessResult.BlockedByTimeLimit
+                        : ProxyAccessResult.BlockedByPolicy;
+            var matchedRuleId = categoryDecision != null
+                ? (Guid?)null
+                : result == ProxyAccessResult.BlockedByTimeLimit
+                    ? (Guid?)timedRule.Id
+                    : decision.MatchedRule == null ? (Guid?)null : decision.MatchedRule.Id;
+
+            // Recording the decision must not change the decision itself: a logging failure is reported
+            // but the request still receives the intent that was already computed.
+            try
+            {
+                _eventStore.RecordAccessEvent(new ProxyAccessEvent(
+                    eventId,
+                    DateTime.UtcNow,
+                    request.Host,
+                    request.Method,
+                    result,
+                    matchedRuleId,
+                    _policyVersion,
+                    request.RequestedUrl,
+                    request.Port));
+            }
+            catch (Exception exception) when (!(exception is OutOfMemoryException))
+            {
+                ReportError(new InvalidOperationException("The access event could not be recorded.", exception));
+            }
 
             if (!isAllowed)
             {
@@ -335,17 +365,13 @@ namespace WebBlocker.Filtering
                 }
                 else
                 {
-                    var pagePath = result == ProxyAccessResult.BlockedByTimeLimit
-                        ? _timeoutPagePath
-                        : _blockedPagePath;
-                    await WriteBlockedPageAsync(client.GetStream(), eventId, pagePath, cancellationToken)
+                    var pageKind = _pageCatalog.Resolve(result);
+                    await WriteBlockedPageAsync(client.GetStream(), eventId, _pageCatalog.GetPath(pageKind), cancellationToken)
                         .ConfigureAwait(false);
                 }
 
                 return;
-            }
-
-            await ForwardAllowedRequestAsync(
+            }await ForwardAllowedRequestAsync(
                 client,
                 reader,
                 request,
@@ -543,7 +569,15 @@ namespace WebBlocker.Filtering
                 exception is IOException || exception is UnauthorizedAccessException)
             {
                 ReportError(new IOException("The local filtering page file could not be read.", exception));
-                _eventStore.UpdateAccessEventResult(eventId, ProxyAccessResult.BlockPageFailure);
+                try
+                {
+                    _eventStore.UpdateAccessEventResult(eventId, ProxyAccessResult.BlockPageFailure);
+                }
+                catch (Exception updateException) when (!(updateException is OutOfMemoryException))
+                {
+                    ReportError(new InvalidOperationException("The failed block page could not be recorded.", updateException));
+                }
+
                 await WriteTextResponseAsync(stream, 503, "Filtering Error", cancellationToken).ConfigureAwait(false);
                 return;
             }

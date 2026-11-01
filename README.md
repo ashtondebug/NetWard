@@ -18,20 +18,21 @@ NetWard（网界卫士）旨在逐步发展为由**管理端**与**被控端**�
 
 | 能力 | 状态 | 范围与限制 |
 | --- | --- | --- |
-| 白名单/黑名单及域名匹配 | 原型已实现 | 仅应用于显式代理收到的请求 |
-| 限时访问 | 原型已实现 | 类别叠加于基础策略；首次访问启动每日连续墙钟倒计时，关闭浏览器不暂停 |
-| 普通/超时拦截页 | 已实现 | HTTP 可显示本地页；HTTPS CONNECT 不解密，也不能替换加密页面 |
+| 白名单/黑名单及域名匹配 | Alpha 已实现 | 仅应用于显式代理收到的请求；重叠规则取最具体命中 |
+| 限时访问 | Alpha 已实现 | 类别叠加于基础策略；首次访问启动每日连续墙钟倒计时，关闭浏览器不暂停 |
+| 三类拦截页 | Alpha 已实现 | `block.html` 普通拦截、`timeout.html` 限时到期、`violation.html` 分类违规；HTTP 可显示，HTTPS CONNECT 不解密 |
+| 分类网站管控 | Alpha 已实现 | 管理端从 Markdown 导入、可启用/停用；命中显示违规页并记录为违规事件 |
+| 被控端程序 `NetWard.Agent` | Alpha 新增 | 启动/停止代理、状态与实时事件、启动受管浏览会话 |
+| 受管浏览会话 | Alpha 新增 | 独立浏览器 profile + `--proxy-server`，Edge/Chrome 生效；会话结束即回收 |
 | 访问申请 | 仅界面 | HTTP 页面预填尝试网址并填写理由；提交尚未发送、保存或通知管理员 |
-| 分类网站管控 | 占位界面 | 显示色情、赌博类别；名单未导入，开关禁用，不执行分类拦截 |
-| 违规提示页 | 静态资源 | 尚未与分类策略连接；页面文字不代表额外取证功能 |
 | HTTP 完整网址日志 | 已实现 | 包含路径和查询字符串；查询参数可能含敏感信息 |
 | HTTPS 目标日志 | 部分可见 | 仅可见 CONNECT 主机名和端口；加密路径/查询不可见 |
 | 30 天日志留存 | 本地已实现 | 代理启动及运行时每小时清理；管理端启动时也清理 |
 | 设备 IP、交互式 Windows 用户名、浏览时长 | 未实现 | 需要经授权的端点身份与会话计时机制 |
-| 老机型版 / 最新支持版双版本交付 | 需求已确定，尚未实现 | 管理端和被控端各计划提供 Legacy 与 Modern 版本；Legacy 目标 Windows 7 SP1 并保留当前 UI 风格，Modern 计划使用 WinUI 3；两版操作系统底线、通信兼容矩阵和打包方案仍待验证 |
-| 远程配对、管理端通知、策略/日志同步 | 未实现 | 尚无认证设备通信协议或被控端程序 |
-| Kiosk 全屏及管理员授权退出 | 未实现 | 需先启动受控浏览会话；普通网页不能加载后自行强制全屏 |
-| 安装/卸载及系统级访问控制 | 未实现 | 不安装驱动、服务或系统网络配置 |
+| 老机型版 / 最新支持版双版本交付 | Alpha 双前端 | Legacy：WinForms 管理端 + `NetWard.Agent`；Modern：`NetWard.Modern`（WinUI 3，net9）通过引擎桥复用同一数据库与代理，真实读写策略/事件 |
+| 远程配对、管理端通知、策略/日志同步 | 未实现 | 尚无认证设备通信协议，单机部署 |
+| Kiosk 全屏及管理员授权退出 | 未实现 | 受管浏览是普通窗口，不是锁屏 kiosk |
+| 安装/卸载及系统级访问控制 | 未实现 | 提供构建/启动脚本，不包含安装器；不安装驱动、服务或修改系统网络设置 |
 
 更完整的需求、技术边界和逐项状态见[产品需求与实现状态](docs/product-requirements.md)及[开发路线图](docs/roadmap.md)。
 
@@ -74,6 +75,24 @@ dotnet build .\NetWard.sln --configuration Release
 
 HTTP 被拒请求会收到本地拦截页。HTTPS CONNECT 被拒时代理返回 403；代理不安装证书、不解密 TLS，也不能在加密连接内显示本地 HTML。直接连接、其他代理、VPN、DoH、QUIC/HTTP/3 等流量可能绕过或避开本原型。
 
+
+### 运行 Alpha（推荐方式）
+
+```powershell
+.\scripts\build.ps1
+.\scripts\start-admin.bat     # 配置策略、导入分类名单、查看日志
+.\scripts\start-agent.bat     # 启动被控端，然后点“启动受管浏览”
+```
+
+Alpha 的完整链路是：管理端保存策略 → 被控端点“启动被控端”载入策略并监听随机回环端口 →
+点“启动受管浏览”打开一个被强制走该代理的浏览器会话 → 访问被拦域名时看到对应拦截页，
+同时被控端右侧实时列出访问事件。
+
+分类名单从管理端「不良网站管控」页导入 Markdown 文件；示例格式见
+[`samples/category-list.example.md`](samples/category-list.example.md)（只含保留测试域名，不含真实名单）。
+
+**边界（务必阅读）**：受管浏览只保证该会话内的浏览器流量经过代理，不修改系统代理、
+不拦截直接连接、其他浏览器、VPN 或 DoH。它是一份可验证的 Alpha，不是不可绕过的系统级管控。
 ### 启动本地管理端
 
 在另一个 PowerShell 窗口中运行：
@@ -84,6 +103,28 @@ HTTP 被拒请求会收到本地拦截页。HTTPS CONNECT 被拒时代理返回 
 ```
 
 管理端可编辑白/黑名单规则和限时访问类别、查看/恢复策略历史、分页查询访问日志。此处与上面的代理示例使用同一测试数据库。保存策略不会热更新已运行的代理；验证新策略时应重启代理。
+
+## Modern 版（WinUI 3，管理端 + 被控端）
+
+两个角色都提供 WinUI 3 原生界面，使用官方组件：`NavigationView` 侧边栏、`InfoBar`、`ListView`、`AutoSuggestBox`、
+`ComboBox`、`NumberBox`、`ContentDialog`、`DropDownButton` + `RadioMenuFlyoutItem` 主题菜单；被控端额外使用 `MicaBackdrop`。
+
+| 应用 | 项目 | 职责 |
+| --- | --- | --- |
+| Modern 管理端 | `src/NetWard.Modern.Administrator` | 总览、网页访问规则、限时访问、分类名单导入与启用、访问日志、策略历史与恢复；**启用/暂停管理**；PerMonitorV2 高 DPI |
+| Modern 被控端 | `src/NetWard.Modern` | 单页极简且**只读**：设备名称/IP、连接码、连接状态与运行时间、断线回退提示；启停管理只能由管理端操作 |
+
+两者都通过 `src/NetWard.EngineBridge`（net48）复用已验证的引擎和同一个 `%LOCALAPPDATA%\\WebBlocker\\proxy.db`，
+不引入第二套数据格式。截图：[管理端](docs/images/modern-admin.png)、[被控端](docs/images/modern-agent.png)。
+
+```powershell
+dotnet build .\\src\\NetWard.Modern.Administrator\\NetWard.Modern.Administrator.csproj -c Release
+.\\src\\NetWard.Modern.Administrator\\bin\\Release\\net9.0-windows10.0.19041.0\\win-x64\\NetWard.Modern.Administrator.exe
+.\\src\\NetWard.Modern\\bin\\Release\\net9.0-windows10.0.19041.0\\win-x64\\NetWard.Modern.exe
+```
+
+管理端的策略编辑会写入数据库；被控端重启「启动保护」后加载新策略。边界与 Legacy Alpha 相同：
+不修改系统代理，不拦截直接连接、其他浏览器、VPN 或 DoH。
 
 ## 功能需求摘要
 
@@ -109,6 +150,9 @@ HTTP 被拒请求会收到本地拦截页。HTTPS CONNECT 被拒时代理返回 
 | `src/WebBlocker.Persistence` | 本地存储 | SQLite 策略、历史、限时窗口和访问事件 |
 | `src/WebBlocker.Administrator` | 管理端 | 本地 WinForms 规则、类别占位 UI 和日志查看 |
 | `src/WebBlocker.ProxyHost` | 代理宿主 | 命令行配置、运行代理及数据库维护 |
+| `src/NetWard.EngineBridge` | 引擎桥（net48） | 为 WinUI 前端提供 JSON 查询与代理托管，复用同一 SQLite 策略/事件库 |
+| `src/NetWard.Modern` | Modern 前端（WinUI 3） | 真实策略/分类/事件视图，启停保护、受管浏览、打开 Legacy 管理端 |
+| `src/WebBlocker.Agent` | 被控端（Alpha） | 代理控制台、受管浏览会话、实时访问事件 |
 | `tests/WebBlocker.Shared.Tests` | 自动化测试 | 策略、迁移、持久化、HTTP/CONNECT 集成测试 |
 | `docs` | 项目文档 | 产品需求、安全设计、协议方向、兼容性、路线图 |
 | `scripts` | 开发脚本 | 构建、测试与命令行冒烟验证 |
@@ -133,6 +177,8 @@ src/
   WebBlocker.Persistence/
   WebBlocker.Administrator/
   WebBlocker.ProxyHost/
+  NetWard.EngineBridge/
+  NetWard.Modern/
 tests/
   WebBlocker.Shared.Tests/
 docs/

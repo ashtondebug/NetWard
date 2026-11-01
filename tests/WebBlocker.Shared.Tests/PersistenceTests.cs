@@ -111,6 +111,44 @@ namespace WebBlocker.Shared.Tests
             return Task.FromResult(true);
         }
 
+        public static Task CategoryListsPersistAcrossRestartAsync()
+        {
+            using (var database = new TestDatabase())
+            {
+                var store = new AccessEventStore(database.Path);
+                var category = new CategoryConfig("成人内容", "adult-v1.md", false);
+                var rule = new CategoryRule(Guid.NewGuid(), "成人内容", "adult.example.test", true, true);
+                var policy = new AccessPolicy(
+                    AccessMode.BlockList,
+                    new DomainRule[0],
+                    new TimedAccessCategory[0],
+                    new TimedAccessRule[0],
+                    new[] { category },
+                    new[] { rule });
+                var version = store.SavePolicy(policy);
+                AssertTrue(version >= 1);
+
+                var reopened = new AccessEventStore(database.Path);
+                PolicySnapshot snapshot;
+                AssertTrue(reopened.TryLoadPolicy(out snapshot));
+                AssertEqual(1, snapshot.Policy.Categories.Count);
+                AssertEqual("成人内容", snapshot.Policy.Categories[0].Name);
+                AssertEqual("adult-v1.md", snapshot.Policy.Categories[0].SourceName);
+                AssertFalse(snapshot.Policy.Categories[0].IsEnabled);
+                AssertEqual(1, snapshot.Policy.CategoryRules.Count);
+                AssertEqual("adult.example.test", snapshot.Policy.CategoryRules[0].Domain);
+                AssertTrue(PolicyEvaluator.EvaluateCategory(snapshot.Policy, "adult.example.test") == null);
+
+                reopened.UpdateCategoryState(new[] { category.WithEnabled(true) });
+                PolicySnapshot enabledSnapshot;
+                AssertTrue(reopened.TryLoadPolicy(out enabledSnapshot));
+                var decision = PolicyEvaluator.EvaluateCategory(enabledSnapshot.Policy, "adult.example.test");
+                AssertTrue(decision != null);
+                AssertEqual("成人内容", decision.MatchedCategory);
+            }
+
+            return Task.FromResult(true);
+        }
         public static Task BackupAndRetentionPreservePolicyAndApplyCutoffAsync()
         {
             using (var database = new TestDatabase())
@@ -191,7 +229,7 @@ namespace WebBlocker.Shared.Tests
             using (var database = new TestDatabase())
             {
                 new AccessEventStore(database.Path);
-                AssertEqual(4, ReadSchemaVersion(database.Path));
+                AssertEqual(5, ReadSchemaVersion(database.Path));
 
                 var futureDatabasePath = Path.Combine(database.DirectoryPath, "future-schema.db");
                 var builder = new SQLiteConnectionStringBuilder
@@ -215,7 +253,7 @@ namespace WebBlocker.Shared.Tests
                 var legacyDatabasePath = Path.Combine(database.DirectoryPath, "schema-v1.db");
                 CreateVersionOneDatabase(legacyDatabasePath);
                 var migratedStore = new AccessEventStore(legacyDatabasePath);
-                AssertEqual(4, ReadSchemaVersion(legacyDatabasePath));
+                AssertEqual(5, ReadSchemaVersion(legacyDatabasePath));
                 PolicySnapshot migratedPolicy;
                 AssertTrue(migratedStore.TryLoadPolicy(out migratedPolicy));
                 AssertEqual(4L, migratedPolicy.Version);

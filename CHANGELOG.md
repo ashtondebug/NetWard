@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Alpha：可运行的受管会话版本
+
+- Added `NetWard.Agent`, a Legacy/WinForms endpoint console that loads the saved policy, starts the
+  loopback proxy, shows the policy and category summary, lists access events with violations highlighted
+  in red, and launches a managed browsing session.
+- Added the managed browsing session: a dedicated browser profile plus `--proxy-server` forces Edge or
+  Chrome through the local proxy without changing Windows proxy settings. Internet Explorer, when used,
+  applies and then restores the per-user WinINET proxy values.
+- Renamed the ordinary denial page from `index.html` to `block.html` and added a `BlockPageCatalog` so the
+  proxy routes each decision to the correct bundled page: `block.html`, `timeout.html` or `violation.html`.
+- Added blocked-content category enforcement: `CategoryConfig`/`CategoryRule`, category evaluation that
+  runs before the base allowlist/blocklist decision, and the distinct violation page on a match.
+- Added SQLite schema v5 with `BlockedCategories`, `BlockedCategoryRules` and their policy-history tables,
+  the `BlockedByCategory` access result, and the v4-to-v5 migration.
+- Added Markdown category list import in the administrator with a preview of parsed categories, domain
+  counts, duplicates and rejected lines, and an enable/disable switch per category.
+- Added `samples/category-list.example.md`, which only contains reserved test domains, so the import and
+  violation path can be demonstrated without inventing real category data.
+- Fixed a long-standing inverted blocklist evaluation: a matching rule in blocklist mode now denies access,
+  and every non-matching host is allowed.
+- Fixed overlapping-rule evaluation: the most specific rule wins, independent of storage order, so audit
+  records name the rule that actually decided the request.
+- Fixed unhandled `InvalidDataException` crashes: a corrupted or newer-schema database now reports a readable
+  message in both the proxy host and the administrator instead of terminating with an unhandled exception.
+- Added startup validation for bundled denial pages: a missing page stops the host with a clear message and
+  the 503 fallback is still recorded as `BlockPageFailure`.
+- Extended the automated suite to 30 tests, including most-specific rule matching, category evaluation,
+  page routing, category persistence and an end-to-end violation-page proxy test.
+
+- Reworked the Modern UI around native WinUI 3: `NavigationView` sidebar, `MicaBackdrop`, system theme brushes, `InfoBar` status, `AutoSuggestBox` search, `ToggleSwitch` theme control and `AccentButtonStyle` primary actions. Removed the custom palette and self-drawn navigation buttons.
+- Fixed a runtime XAML failure by merging `XamlControlsResources` into `Application.Resources`.
+
+### Modern Alpha（WinUI 3）与引擎桥
+
+- Added `src/NetWard.EngineBridge`, a net48 console bridge exposing the existing policy/event database as JSON (`status-json`, `policy-json`, `events-json`) and hosting the proxy for a parent process (`run --parent-pid`), so the Modern front-end reuses the verified engine without a second data format.
+- Added `src/NetWard.Modern`, a WinUI 3 (net9.0-windows) front-end with real policy, category and event views, protection start/stop, managed browsing, and a link to the Legacy administrator. Visual language follows `demos/modern`; the demo projects remain static design references.
+- The Modern app copies the engine and the Legacy administrator into its output (`engine\`, `tools\legacy-admin\`) so it runs as a self-contained folder.
+
+## Unreleased（此前内容）
 - Reorganized the README around the project overview, capability/status matrix, quick start, component map, architecture/privacy boundaries, documentation index, and contribution entry point; added a complete docs index and aligned the public requirements summary.
 - Renamed the product and Visual Studio solution to NetWard 网界卫士; updated app metadata, executable names, window/CLI titles, and HTML branding while keeping legacy code namespaces and local data paths stable.
 - Initialized the Windows 7-aware project structure and documented the current architecture and filtering limitations.

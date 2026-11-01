@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <WindowsSdkPackageVersion>10.0.26100.56</WindowsSdkPackageVersion>
+    <RootNamespace>NetWard.Modern</RootNamespace>
+    <AssemblyName>NetWard.Modern</AssemblyName>
+    <ApplicationTitle>NetWard 网界卫士 · Modern Alpha</ApplicationTitle>
+    <Platforms>x64</Platforms>
+    <Nullable>disable</Nullable>
+    <!-- The two build-only project references target net48 by design (child processes), not this assembly. -->
+    <NoWarn>$(NoWarn);NU1702</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.4" />
+    <!-- Build-only references: the Modern app launches these net48 executables as child processes, so it
+         must not link their assemblies but does need them built before the copy step runs. -->
+    <ProjectReference Include="..\NetWard.EngineBridge\NetWard.EngineBridge.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\WebBlocker.Administrator\WebBlocker.Administrator.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyAlphaEngine" AfterTargets="Build">
+    <ItemGroup>
+      <EngineFiles Include="..\NetWard.EngineBridge\bin\$(Configuration)\net48\**\*.*" />
+      <LegacyAdminFiles Include="..\WebBlocker.Administrator\bin\$(Configuration)\net48\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(EngineFiles)" DestinationFiles="@(EngineFiles->'$(OutDir)engine\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LegacyAdminFiles)" DestinationFiles="@(LegacyAdminFiles->'$(OutDir)tools\legacy-admin\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyWinUIResourceIndexToPublish" AfterTargets="Publish">
+    <Error Condition="!Exists('$(OutDir)$(AssemblyName).pri')" Text="The WinUI resource index $(AssemblyName).pri was not generated." />
+    <Copy SourceFiles="$(OutDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyEngineToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <PublishEngineFiles Include="..\NetWard.EngineBridge\bin\$(Configuration)\net48\**\*.*" />
+      <PublishLegacyAdminFiles Include="..\WebBlocker.Administrator\bin\$(Configuration)\net48\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PublishEngineFiles)" DestinationFiles="@(PublishEngineFiles->'$(PublishDir)engine\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PublishLegacyAdminFiles)" DestinationFiles="@(PublishLegacyAdminFiles->'$(PublishDir)tools\legacy-admin\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target></Project>

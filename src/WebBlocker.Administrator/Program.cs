@@ -52,6 +52,18 @@ namespace WebBlocker.Administrator
                     "NetWard 网界卫士", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Environment.ExitCode = 1;
             }
+            catch (System.IO.InvalidDataException exception)
+            {
+                MessageBox.Show("The local policy database is not compatible with this version:\r\n" + exception.Message,
+                    "NetWard 网界卫士", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Environment.ExitCode = 1;
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show("The local policy manager stopped because of an unexpected error:\r\n" + exception,
+                    "NetWard 网界卫士", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Environment.ExitCode = 1;
+            }
         }
 
         private static string ParseDatabasePath(string[] args)
@@ -88,6 +100,10 @@ namespace WebBlocker.Administrator
         private readonly List<DomainRule> _rules = new List<DomainRule>();
         private readonly List<TimedAccessCategory> _timedCategories = new List<TimedAccessCategory>();
         private readonly List<TimedAccessRule> _timedRules = new List<TimedAccessRule>();
+        private readonly List<CategoryConfig> _categories = new List<CategoryConfig>();
+        private readonly List<CategoryRule> _categoryRules = new List<CategoryRule>();
+        private DataGridView _categoryGrid;
+        private Label _categoryStatus;
         private readonly ComboBox _mode = new ComboBox();
         private readonly TextBox _domain = new TextBox();
         private readonly CheckBox _includeSubdomains = new CheckBox();
@@ -100,7 +116,12 @@ namespace WebBlocker.Administrator
         private readonly CheckBox _timedIncludeSubdomains = new CheckBox();
         private readonly ListBox _timedRuleList = new ListBox();
         private readonly ListBox _historyList = new ListBox();
-        private readonly Label _status = new Label();
+        private readonly Label _status = new Label
+        {
+            AutoSize = true,
+            AutoEllipsis = false,
+            ForeColor = System.Drawing.Color.DimGray
+        };
         private readonly List<PolicyHistoryEntry> _history = new List<PolicyHistoryEntry>();
         private readonly DataGridView _eventGrid = new DataGridView();
         private readonly TextBox _eventDomainSearch = new TextBox();
@@ -302,19 +323,18 @@ namespace WebBlocker.Administrator
             root.Controls.Add(footer, 0, 3);
         }
 
-        private static void BuildCategorizedProtectionTab(TabPage categorizedProtectionTab)
+                private void BuildCategorizedProtectionTab(TabPage categorizedProtectionTab)
         {
             var layout = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
+                Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 3,
-                Padding = new Padding(18),
-                AutoSize = true
+                Padding = new Padding(18)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             categorizedProtectionTab.Controls.Add(layout);
 
             layout.Controls.Add(new Label
@@ -324,76 +344,208 @@ namespace WebBlocker.Administrator
                 Dock = DockStyle.Fill,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft
             }, 0, 0);
-            layout.Controls.Add(new Label
-            {
-                Text = "分类名单尚未导入。当前仅展示类别名称，不会拦截或记录分类判定；收到并审核名单后才能启用防护。",
-                ForeColor = System.Drawing.Color.DimGray,
-                Dock = DockStyle.Fill,
-                AutoSize = false
-            }, 0, 1);
 
-            var categories = new TableLayoutPanel
+            var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+            var importButton = new Button { Text = "导入 Markdown 名单…", AutoSize = true };
+            importButton.Click += (sender, args) => ImportCategoryList();
+            var toggleButton = new Button { Text = "启用 / 停用所选类别", AutoSize = true };
+            toggleButton.Click += (sender, args) => ToggleSelectedCategory();
+            var saveButton = new Button { Text = "保存策略并应用", AutoSize = true };
+            saveButton.Click += (sender, args) => { SavePolicy(sender, EventArgs.Empty); RefreshCategoryGrid(); };
+            _categoryStatus = new Label
             {
-                Dock = DockStyle.Top,
-                ColumnCount = 3,
-                RowCount = 3,
                 AutoSize = true,
-                CellBorderStyle = TableLayoutPanelCellBorderStyle.Single
+                ForeColor = System.Drawing.Color.DimGray,
+                Margin = new Padding(12, 8, 0, 0)
             };
-            categories.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-            categories.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-            categories.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-            categories.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-            categories.Controls.Add(new Label
-            {
-                Text = "网站类别",
-                Dock = DockStyle.Fill,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-            }, 0, 0);
-            categories.Controls.Add(new Label
-            {
-                Text = "防护状态",
-                Dock = DockStyle.Fill,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-            }, 1, 0);
-            categories.Controls.Add(new Label
-            {
-                Text = "名单状态",
-                Dock = DockStyle.Fill,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-            }, 2, 0);
+            actions.Controls.Add(importButton);
+            actions.Controls.Add(toggleButton);
+            actions.Controls.Add(saveButton);
+            actions.Controls.Add(_categoryStatus);
+            layout.Controls.Add(actions, 0, 1);
 
-            AddUnavailableCategoryRow(categories, 1, "色情网站");
-            AddUnavailableCategoryRow(categories, 2, "赌博网站");
-            layout.Controls.Add(categories, 0, 2);
+            _categoryGrid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                RowHeadersVisible = false,
+                BackgroundColor = System.Drawing.Color.White
+            };
+            _categoryGrid.Columns.Add("name", "网站类别");
+            _categoryGrid.Columns.Add("count", "域名数");
+            _categoryGrid.Columns.Add("enabled", "防护状态");
+            _categoryGrid.Columns.Add("source", "名单来源");
+            _categoryGrid.Columns[1].Width = 80;
+            _categoryGrid.Columns[2].Width = 100;
+            _categoryGrid.Columns[1].AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            _categoryGrid.Columns[2].AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            layout.Controls.Add(_categoryGrid, 0, 2);
+
+            var hint = new Label
+            {
+                Text = "名单只从管理员审核过的 Markdown 文件导入，程序不会内置或编造任何域名。启用后命中「违规内容拦截」并在日志中记录。",
+                ForeColor = System.Drawing.Color.DimGray,
+                Dock = DockStyle.Bottom,
+                AutoSize = true
+            };
+            var host = new TableLayoutPanel { Dock = DockStyle.Bottom, RowCount = 1, ColumnCount = 1, AutoSize = true };
+            host.Controls.Add(hint, 0, 0);
+            categorizedProtectionTab.Controls.Add(host);
+            host.BringToFront();
         }
 
-        private static void AddUnavailableCategoryRow(TableLayoutPanel categories, int row, string categoryName)
+        private void RefreshCategoryGrid()
         {
-            categories.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-            categories.Controls.Add(new Label
+            if (_categoryGrid == null)
             {
-                Text = categoryName,
-                Dock = DockStyle.Fill,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-            }, 0, row);
-            var protectionSwitch = new CheckBox
+                return;
+            }
+
+            _categoryGrid.Rows.Clear();
+            foreach (var category in _categories)
             {
-                Text = "启用防护",
-                AutoSize = true,
-                Enabled = false,
-                Anchor = AnchorStyles.Left
-            };
-            categories.Controls.Add(protectionSwitch, 1, row);
-            categories.Controls.Add(new Label
+                var ruleCount = _categoryRules.Count(rule =>
+                    string.Equals(rule.Category, category.Name, StringComparison.OrdinalIgnoreCase));
+                _categoryGrid.Rows.Add(
+                    category.Name,
+                    ruleCount,
+                    category.IsEnabled ? "已启用" : "未启用",
+                    category.SourceName ?? "-");
+            }
+
+            if (_categories.Count == 0)
             {
-                Text = "等待管理员导入名单",
-                ForeColor = System.Drawing.Color.DimGray,
-                Dock = DockStyle.Fill,
-                TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-            }, 2, row);
+                _categoryStatus.Text = "尚未导入分类名单。";
+            }
+            else
+            {
+                _categoryStatus.Text = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "共 {0} 个类别 / {1} 条域名规则；启用 {2} 个类别。",
+                    _categories.Count,
+                    _categoryRules.Count,
+                    _categories.Count(category => category.IsEnabled));
+            }
+
+            if (_categoryRules.Count > 0)
+            {
+                _categoryStatus.Text += " 保存策略后生效。";
+            }
         }
 
+        private void ImportCategoryList()
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "选择分类名单（Markdown）";
+                dialog.Filter = "Markdown 文件 (*.md)|*.md|所有文件 (*.*)|*.*";
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                CategoryImportResult parsed;
+                try
+                {
+                    var parser = new CategoryListParser();
+                    parsed = parser.Parse(dialog.FileName, Path.GetFileName(dialog.FileName));
+                }
+                catch (Exception exception)
+                {
+                    MessageBox.Show(
+                        "无法读取名单文件：\r\n" + exception.Message,
+                        "NetWard 网界卫士 - 管理端",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
+
+                var preview = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "文件：{0}\r\n类别：{1}\r\n域名规则：{2}\r\n重复项：{3}\r\n无法识别的行：{4}",
+                    dialog.FileName,
+                    parsed.Categories.Count,
+                    parsed.Rules.Count,
+                    parsed.Duplicates,
+                    parsed.Errors.Count);
+
+                if (parsed.Errors.Count > 0)
+                {
+                    preview += "\r\n\r\n前 10 条问题：\r\n" + string.Join(
+                        "\r\n",
+                        parsed.Errors.Take(10).ToArray());
+                }
+
+                preview += "\r\n\r\n导入将替换当前已导入的全部分类名单（启用状态保留）。是否继续？";
+                if (MessageBox.Show(preview, "确认导入分类名单",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                if (!parsed.HasContent)
+                {
+                    MessageBox.Show(
+                        "文件中没有可导入的类别，操作已取消。",
+                        "NetWard 网界卫士 - 管理端",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var previouslyEnabled = new HashSet<string>(
+                    _categories.Where(category => category.IsEnabled).Select(category => category.Name),
+                    StringComparer.OrdinalIgnoreCase);
+
+                _categories.Clear();
+                _categoryRules.Clear();
+                foreach (var category in parsed.Categories)
+                {
+                    _categories.Add(category.WithEnabled(
+                        previouslyEnabled.Contains(category.Name) || category.IsEnabled));
+                }
+
+                _categoryRules.AddRange(parsed.Rules);
+                RefreshCategoryGrid();
+                _status.Text = "已导入 " + parsed.Categories.Count + " 个类别，保存策略后生效。";
+            }
+        }
+
+        private void ToggleSelectedCategory()
+        {
+            if (_categoryGrid == null || _categoryGrid.SelectedRows.Count == 0)
+            {
+                return;
+            }
+
+            var name = Convert.ToString(_categoryGrid.SelectedRows[0].Cells[0].Value, CultureInfo.InvariantCulture);
+            var index = _categories.FindIndex(category =>
+                string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                return;
+            }
+
+            var updated = _categories[index].WithEnabled(!_categories[index].IsEnabled);
+            _categories[index] = updated;
+            RefreshCategoryGrid();
+            _status.Text = "类别「" + updated.Name + "」已" + (updated.IsEnabled ? "启用" : "停用") + "，保存策略后生效。";
+        }
+
+        private void LoadCategoriesFromSnapshot(PolicySnapshot snapshot)
+        {
+            _categories.Clear();
+            _categoryRules.Clear();
+            _categories.AddRange(snapshot.Policy.Categories);
+            _categoryRules.AddRange(snapshot.Policy.CategoryRules);
+            RefreshCategoryGrid();
+        }
         private void BuildTimedAccessTab(TabPage timedAccessTab)
         {
             var layout = new TableLayoutPanel
@@ -511,6 +663,7 @@ namespace WebBlocker.Administrator
             _timedCategories.AddRange(snapshot.Policy.TimedAccessCategories);
             _timedRules.Clear();
             _timedRules.AddRange(snapshot.Policy.TimedAccessRules);
+            LoadCategoriesFromSnapshot(snapshot);
             RenderRules();
             RenderTimedCategories();
             RenderTimedRules();
@@ -655,7 +808,7 @@ namespace WebBlocker.Administrator
             {
                 var accessMode = _mode.SelectedIndex == 0 ? AccessMode.AllowList : AccessMode.BlockList;
                 var version = _store.SavePolicy(
-                    new AccessPolicy(accessMode, _rules, _timedCategories, _timedRules));
+                    new AccessPolicy(accessMode, _rules, _timedCategories, _timedRules, _categories, _categoryRules));
                 RefreshHistory();
                 _status.Text = string.Format(CultureInfo.CurrentCulture,
                     "策略已保存为版本 {0}。如代理已运行，请重启代理以加载新策略。", version);

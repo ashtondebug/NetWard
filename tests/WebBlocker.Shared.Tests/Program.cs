@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using WebBlocker.Shared;
 
@@ -23,11 +24,15 @@ namespace WebBlocker.Shared.Tests
             Run("rejects duplicate normalized rules", RejectsDuplicateRules);
             Run("matches timed-access rules by most-specific domain", MatchesTimedAccessRules);
             Run("rejects invalid timed-access categories and references", RejectsInvalidTimedAccessPolicies);
-            Run("bundles a truthful standalone violation notice without image-capture claims",
+            Run("matches the most specific base rule regardless of ordering", MatchesMostSpecificBaseRule);
+            Run("blocks enabled category matches and ignores disabled categories", EvaluatesCategoryEnforcement);
+            Run("rejects category rules that reference an unknown category", RejectsUnknownCategoryReferences);
+            Run("maps proxy results to the bundled block, timeout and violation pages", MapsBlockPageKinds);            Run("bundles a truthful standalone violation notice without image-capture claims",
                 ViolationNoticeIsBundledAndTransparent);
             RunAsync("SQLite policy and event records survive restart with deduplication and filters",
                 PersistenceTests.PolicyAndAccessEventsPersistAcrossStoreInstancesAsync).GetAwaiter().GetResult();
-            RunAsync("SQLite online backup and event retention preserve policy and cutoff semantics",
+            RunAsync("category lists persist across restart and can be enabled atomically",
+                PersistenceTests.CategoryListsPersistAcrossRestartAsync).GetAwaiter().GetResult();            RunAsync("SQLite online backup and event retention preserve policy and cutoff semantics",
                 PersistenceTests.BackupAndRetentionPreservePolicyAndApplyCutoffAsync).GetAwaiter().GetResult();
             RunAsync("automatic access-event retention deletes records older than 30 days using UTC",
                 PersistenceTests.AutomaticRetentionUsesThirtyDayUtcCutoffAsync).GetAwaiter().GetResult();
@@ -39,7 +44,8 @@ namespace WebBlocker.Shared.Tests
                 ProxyIntegrationTests.BlockPageFailureIsPersistedAndDoesNotMasqueradeAsSuccessAsync).GetAwaiter().GetResult();
             RunAsync("explicit HTTP proxy enforces rules and serves the local block page",
                 ProxyIntegrationTests.HttpProxyEnforcesPolicyAsync).GetAwaiter().GetResult();
-            RunAsync("explicit CONNECT proxy blocks denied hosts and tunnels allowed hosts",
+            RunAsync("category match serves the violation page and records the result",
+                ProxyIntegrationTests.CategoryMatchServesViolationPageAsync).GetAwaiter().GetResult();            RunAsync("explicit CONNECT proxy blocks denied hosts and tunnels allowed hosts",
                 ProxyIntegrationTests.ConnectProxyFiltersAndTunnelsAsync).GetAwaiter().GetResult();
             RunAsync("proxy rejects mismatched request and Host headers",
                 ProxyIntegrationTests.RejectsMismatchedHostHeaderAsync).GetAwaiter().GetResult();
@@ -164,6 +170,86 @@ namespace WebBlocker.Shared.Tests
                 new[] { rule }));
         }
 
+        private static void MatchesMostSpecificBaseRule()
+        {
+            var broad = new DomainRule(Guid.NewGuid(), "example.com", true, true);
+            var narrow = new DomainRule(Guid.NewGuid(), "school.example.com", true, true);
+            var policy = new AccessPolicy(AccessMode.AllowList, new[] { broad, narrow });
+
+            var decision = PolicyEvaluator.Evaluate(policy, "school.example.com");
+            AssertTrue(decision.IsAllowed);
+            AssertEqual(narrow.Id, decision.MatchedRule.Id);
+
+            var reversed = new AccessPolicy(AccessMode.AllowList, new[] { narrow, broad });
+            var reversedDecision = PolicyEvaluator.Evaluate(reversed, "school.example.com");
+            AssertEqual(narrow.Id, reversedDecision.MatchedRule.Id);
+
+            // In blocklist mode the most specific match is the denying rule too, so the audit record
+            // names the narrow rule rather than whichever rule happened to be stored first.
+            var blacklist = new AccessPolicy(AccessMode.BlockList, new[] { broad, narrow });
+            var blacklistDecision = PolicyEvaluator.Evaluate(blacklist, "school.example.com");
+            AssertFalse(blacklistDecision.IsAllowed);
+            AssertEqual(narrow.Id, blacklistDecision.MatchedRule.Id);
+        }
+
+        private static void EvaluatesCategoryEnforcement()
+        {
+            var enabled = new CategoryConfig("Adult", "adult.md", true);
+            var disabled = new CategoryConfig("Gambling", "gambling.md", false);
+            var adultRule = new CategoryRule(Guid.NewGuid(), "Adult", "adult.example.test", true, true);
+            var gamblingRule = new CategoryRule(Guid.NewGuid(), "Gambling", "bet.example.test", true, true);
+            var policy = new AccessPolicy(
+                AccessMode.BlockList,
+                new DomainRule[0],
+                new TimedAccessCategory[0],
+                new TimedAccessRule[0],
+                new[] { enabled, disabled },
+                new[] { adultRule, gamblingRule });
+
+            var adultDecision = PolicyEvaluator.EvaluateCategory(policy, "www.adult.example.test");
+            AssertTrue(adultDecision != null);
+            AssertFalse(adultDecision.IsAllowed);
+            AssertEqual("Adult", adultDecision.MatchedCategory);
+
+            AssertTrue(PolicyEvaluator.EvaluateCategory(policy, "bet.example.test") == null);
+            AssertTrue(PolicyEvaluator.EvaluateCategory(policy, "unrelated.example.test") == null);
+
+            // A category match must not change the base policy decision for unrelated hosts.
+            AssertTrue(PolicyEvaluator.Evaluate(policy, "www.adult.example.test").IsAllowed);
+        }
+
+        private static void RejectsUnknownCategoryReferences()
+        {
+            var category = new CategoryConfig("Adult", null, true);
+            var unknownRule = new CategoryRule(Guid.NewGuid(), "Unknown", "example.test", true, true);
+            AssertThrows<ArgumentException>(() => new AccessPolicy(
+                AccessMode.BlockList,
+                new DomainRule[0],
+                new TimedAccessCategory[0],
+                new TimedAccessRule[0],
+                new[] { category },
+                new[] { unknownRule }));
+        }
+
+        private static void MapsBlockPageKinds()
+        {
+            var directory = AppDomain.CurrentDomain.BaseDirectory;
+            var catalog = WebBlocker.Filtering.BlockPageCatalog.CreateDefault(directory);
+            catalog.Validate();
+
+            AssertEqual(WebBlocker.Filtering.BlockPageKind.Block,
+                catalog.Resolve(WebBlocker.Persistence.ProxyAccessResult.BlockedByPolicy));
+            AssertEqual(WebBlocker.Filtering.BlockPageKind.Timeout,
+                catalog.Resolve(WebBlocker.Persistence.ProxyAccessResult.BlockedByTimeLimit));
+            AssertEqual(WebBlocker.Filtering.BlockPageKind.Violation,
+                catalog.Resolve(WebBlocker.Persistence.ProxyAccessResult.BlockedByCategory));
+            AssertEqual(WebBlocker.Filtering.BlockPageKind.None,
+                catalog.Resolve(WebBlocker.Persistence.ProxyAccessResult.AllowedByPolicy));
+
+            AssertTrue(File.Exists(catalog.GetPath(WebBlocker.Filtering.BlockPageKind.Block)));
+            AssertTrue(File.Exists(catalog.GetPath(WebBlocker.Filtering.BlockPageKind.Timeout)));
+            AssertTrue(catalog.GetPath(WebBlocker.Filtering.BlockPageKind.Violation).EndsWith("violation.html", StringComparison.OrdinalIgnoreCase));
+        }
         private static void ViolationNoticeIsBundledAndTransparent()
         {
             var pagePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "violation.html");

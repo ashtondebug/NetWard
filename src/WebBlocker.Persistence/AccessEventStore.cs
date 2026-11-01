@@ -10,7 +10,7 @@ namespace WebBlocker.Persistence
 {
     public sealed class AccessEventStore
     {
-        private const int CurrentSchemaVersion = 4;
+        private const int CurrentSchemaVersion = 5;
         public const int AccessEventRetentionDays = 30;
         private readonly string _connectionString;
 
@@ -230,6 +230,8 @@ namespace WebBlocker.Persistence
 
                 var categories = LoadTimedAccessCategories(connection, historicalVersion, transaction);
                 var timedRules = LoadTimedAccessRules(connection, historicalVersion, transaction);
+                var blockedCategories = LoadBlockedCategories(connection, historicalVersion, transaction);
+                var blockedRules = LoadBlockedCategoryRules(connection, historicalVersion, transaction);
                 var rules = new List<DomainRule>();
                 using (var command = CreateCommand(connection, transaction,
                     "SELECT RuleId, Domain, IncludeSubdomains, IsEnabled " +
@@ -246,11 +248,18 @@ namespace WebBlocker.Persistence
                                 throw new InvalidDataException("The database contains an invalid historical rule ID.");
                             }
 
-                            rules.Add(new DomainRule(
-                                ruleId,
-                                reader.GetString(1),
-                                reader.GetInt32(2) != 0,
-                                reader.GetInt32(3) != 0));
+                            try
+                            {
+                                rules.Add(new DomainRule(
+                                    ruleId,
+                                    reader.GetString(1),
+                                    reader.GetInt32(2) != 0,
+                                    reader.GetInt32(3) != 0));
+                            }
+                            catch (ArgumentException exception)
+                            {
+                                throw new InvalidDataException("The database contains an invalid historical rule.", exception);
+                            }
                         }
                     }
                 }
@@ -258,12 +267,51 @@ namespace WebBlocker.Persistence
                 var restoredVersion = SavePolicyInTransaction(
                     connection,
                     transaction,
-                    new AccessPolicy(mode, rules, categories, timedRules));
+                    new AccessPolicy(mode, rules, categories, timedRules, blockedCategories, blockedRules));
                 transaction.Commit();
                 return restoredVersion;
             }
         }
 
+        public void UpdateCategoryState(IEnumerable<CategoryConfig> categories)
+        {
+            if (categories == null)
+            {
+                throw new ArgumentNullException("categories");
+            }
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+            {
+                foreach (var category in categories)
+                {
+                    if (category == null)
+                    {
+                        throw new ArgumentException("A category state update cannot contain a null category.", "categories");
+                    }
+
+                    if (!names.Add(category.Name))
+                    {
+                        throw new ArgumentException("Category names must be unique.", "categories");
+                    }
+
+                    using (var command = CreateCommand(connection, transaction,
+                        "UPDATE BlockedCategories SET IsEnabled = @isEnabled WHERE Name = @name COLLATE NOCASE;"))
+                    {
+                        AddParameter(command, "@isEnabled", category.IsEnabled ? 1 : 0);
+                        AddParameter(command, "@name", category.Name);
+                        if (command.ExecuteNonQuery() == 0)
+                        {
+                            throw new InvalidDataException(
+                                "The category '" + category.Name + "' is not present in the stored policy. Import the lists and save the policy first.");
+                        }
+                    }
+                }
+
+                transaction.Commit();
+            }
+        }
         public bool TryLoadPolicy(out PolicySnapshot snapshot)
         {
             using (var connection = OpenConnection())
@@ -292,28 +340,13 @@ namespace WebBlocker.Persistence
 
                 var categories = LoadTimedAccessCategories(connection, null, null);
                 var timedRules = LoadTimedAccessRules(connection, null, null);
-                var rules = new List<DomainRule>();
-                using (var command = CreateCommand(connection, null,
-                    "SELECT RuleId, Domain, IncludeSubdomains, IsEnabled FROM Rules ORDER BY rowid;"))
-                using (var reader = command.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        Guid ruleId;
-                        if (!Guid.TryParse(reader.GetString(0), out ruleId))
-                        {
-                            throw new InvalidDataException("The database contains an invalid rule ID.");
-                        }
+                var blockedCategories = LoadBlockedCategories(connection, null, null);
+                var blockedRules = LoadBlockedCategoryRules(connection, null, null);
+                var rules = LoadCurrentRules(connection, null);
 
-                        rules.Add(new DomainRule(
-                            ruleId,
-                            reader.GetString(1),
-                            reader.GetInt32(2) != 0,
-                            reader.GetInt32(3) != 0));
-                    }
-                }
-
-                snapshot = new PolicySnapshot(new AccessPolicy(mode, rules, categories, timedRules), version);
+                snapshot = new PolicySnapshot(
+                    new AccessPolicy(mode, rules, categories, timedRules, blockedCategories, blockedRules),
+                    version);
                 return true;
             }
         }
@@ -424,10 +457,7 @@ namespace WebBlocker.Persistence
                 throw new ArgumentException("An event ID is required.", "eventId");
             }
 
-            if (result != ProxyAccessResult.AllowedByPolicy &&
-                result != ProxyAccessResult.BlockedByPolicy &&
-                result != ProxyAccessResult.BlockPageFailure &&
-                result != ProxyAccessResult.BlockedByTimeLimit)
+            if (!ProxyAccessEvent.IsKnownResult(result))
             {
                 throw new ArgumentOutOfRangeException("result");
             }
@@ -529,8 +559,7 @@ namespace WebBlocker.Persistence
                             }
 
                             var result = reader.GetInt32(4);
-                            if (result < (int)ProxyAccessResult.AllowedByPolicy ||
-                                result > (int)ProxyAccessResult.BlockedByTimeLimit)
+                            if (!ProxyAccessEvent.IsKnownResult((ProxyAccessResult)result))
                             {
                                 throw new InvalidDataException("The database contains an unsupported access result.");
                             }
@@ -585,6 +614,11 @@ namespace WebBlocker.Persistence
             }
             using (var command = CreateCommand(connection, transaction,
                 "DELETE FROM TimedAccessRules; DELETE FROM TimedAccessCategories;"))
+            {
+                command.ExecuteNonQuery();
+            }
+            using (var command = CreateCommand(connection, transaction,
+                "DELETE FROM BlockedCategoryRules; DELETE FROM BlockedCategories;"))
             {
                 command.ExecuteNonQuery();
             }
@@ -681,6 +715,66 @@ namespace WebBlocker.Persistence
                 }
             }
 
+            for (var index = 0; index < policy.Categories.Count; index++)
+            {
+                var category = policy.Categories[index];
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO BlockedCategories (Name, SourceName, IsEnabled) " +
+                    "VALUES (@name, @sourceName, @isEnabled);"))
+                {
+                    AddParameter(command, "@name", category.Name);
+                    AddParameter(command, "@sourceName",
+                        category.SourceName == null ? (object)DBNull.Value : category.SourceName);
+                    AddParameter(command, "@isEnabled", category.IsEnabled ? 1 : 0);
+                    command.ExecuteNonQuery();
+                }
+
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO PolicyVersionBlockedCategories (Version, Name, SourceName, IsEnabled) " +
+                    "VALUES (@version, @name, @sourceName, @isEnabled);"))
+                {
+                    AddParameter(command, "@version", version);
+                    AddParameter(command, "@name", category.Name);
+                    AddParameter(command, "@sourceName",
+                        category.SourceName == null ? (object)DBNull.Value : category.SourceName);
+                    AddParameter(command, "@isEnabled", category.IsEnabled ? 1 : 0);
+                    command.ExecuteNonQuery();
+                }
+            }
+
+            for (var index = 0; index < policy.CategoryRules.Count; index++)
+            {
+                var rule = policy.CategoryRules[index];
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO BlockedCategoryRules " +
+                    "(RuleId, Category, Domain, IncludeSubdomains, IsEnabled, Ordinal) " +
+                    "VALUES (@ruleId, @category, @domain, @includeSubdomains, @isEnabled, @ordinal);"))
+                {
+                    AddParameter(command, "@ruleId", rule.Id.ToString("D"));
+                    AddParameter(command, "@category", rule.Category);
+                    AddParameter(command, "@domain", rule.Domain);
+                    AddParameter(command, "@includeSubdomains", rule.IncludeSubdomains ? 1 : 0);
+                    AddParameter(command, "@isEnabled", rule.IsEnabled ? 1 : 0);
+                    AddParameter(command, "@ordinal", index);
+                    command.ExecuteNonQuery();
+                }
+
+                using (var command = CreateCommand(connection, transaction,
+                    "INSERT INTO PolicyVersionBlockedCategoryRules " +
+                    "(Version, RuleId, Category, Domain, IncludeSubdomains, IsEnabled, Ordinal) " +
+                    "VALUES (@version, @ruleId, @category, @domain, @includeSubdomains, @isEnabled, @ordinal);"))
+                {
+                    AddParameter(command, "@version", version);
+                    AddParameter(command, "@ruleId", rule.Id.ToString("D"));
+                    AddParameter(command, "@category", rule.Category);
+                    AddParameter(command, "@domain", rule.Domain);
+                    AddParameter(command, "@includeSubdomains", rule.IncludeSubdomains ? 1 : 0);
+                    AddParameter(command, "@isEnabled", rule.IsEnabled ? 1 : 0);
+                    AddParameter(command, "@ordinal", index);
+                    command.ExecuteNonQuery();
+                }
+            }
+
             return version;
         }
 
@@ -762,6 +856,128 @@ namespace WebBlocker.Persistence
                         catch (ArgumentException exception)
                         {
                             throw new InvalidDataException("The database contains an invalid timed-access rule.", exception);
+                        }
+                    }
+                }
+            }
+
+            return rules;
+        }
+
+        private static IList<DomainRule> LoadCurrentRules(SQLiteConnection connection, SQLiteTransaction transaction)
+        {
+            var rules = new List<DomainRule>();
+            using (var command = CreateCommand(connection, transaction,
+                "SELECT RuleId, Domain, IncludeSubdomains, IsEnabled FROM Rules ORDER BY rowid;"))
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    Guid ruleId;
+                    if (!Guid.TryParse(reader.GetString(0), out ruleId))
+                    {
+                        throw new InvalidDataException("The database contains an invalid rule ID.");
+                    }
+
+                    try
+                    {
+                        rules.Add(new DomainRule(
+                            ruleId,
+                            reader.GetString(1),
+                            reader.GetInt32(2) != 0,
+                            reader.GetInt32(3) != 0));
+                    }
+                    catch (ArgumentException exception)
+                    {
+                        throw new InvalidDataException("The database contains an invalid domain rule.", exception);
+                    }
+                }
+            }
+
+            return rules;
+        }
+
+        private static IList<CategoryConfig> LoadBlockedCategories(
+            SQLiteConnection connection,
+            long? historicalVersion,
+            SQLiteTransaction transaction)
+        {
+            var categories = new List<CategoryConfig>();
+            var table = historicalVersion.HasValue
+                ? "PolicyVersionBlockedCategories"
+                : "BlockedCategories";
+            var where = historicalVersion.HasValue ? " WHERE Version = @version" : string.Empty;
+            using (var command = CreateCommand(connection, transaction,
+                "SELECT Name, IsEnabled, SourceName FROM " + table + where + " ORDER BY Name COLLATE NOCASE;"))
+            {
+                if (historicalVersion.HasValue)
+                {
+                    AddParameter(command, "@version", historicalVersion.Value);
+                }
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        try
+                        {
+                            categories.Add(new CategoryConfig(
+                                reader.GetString(0),
+                                reader.IsDBNull(2) ? null : reader.GetString(2),
+                                reader.GetInt32(1) != 0));
+                        }
+                        catch (ArgumentException exception)
+                        {
+                            throw new InvalidDataException("The database contains an invalid blocked-content category.", exception);
+                        }
+                    }
+                }
+            }
+
+            return categories;
+        }
+
+        private static IList<CategoryRule> LoadBlockedCategoryRules(
+            SQLiteConnection connection,
+            long? historicalVersion,
+            SQLiteTransaction transaction)
+        {
+            var rules = new List<CategoryRule>();
+            var table = historicalVersion.HasValue
+                ? "PolicyVersionBlockedCategoryRules"
+                : "BlockedCategoryRules";
+            var where = historicalVersion.HasValue ? " WHERE Version = @version" : string.Empty;
+            var order = historicalVersion.HasValue ? " ORDER BY Ordinal;" : " ORDER BY rowid;";
+            using (var command = CreateCommand(connection, transaction,
+                "SELECT RuleId, Category, Domain, IncludeSubdomains, IsEnabled FROM " + table + where + order))
+            {
+                if (historicalVersion.HasValue)
+                {
+                    AddParameter(command, "@version", historicalVersion.Value);
+                }
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Guid ruleId;
+                        if (!Guid.TryParse(reader.GetString(0), out ruleId))
+                        {
+                            throw new InvalidDataException("The database contains an invalid category rule ID.");
+                        }
+
+                        try
+                        {
+                            rules.Add(new CategoryRule(
+                                ruleId,
+                                reader.GetString(1),
+                                reader.GetString(2),
+                                reader.GetInt32(3) != 0,
+                                reader.GetInt32(4) != 0));
+                        }
+                        catch (ArgumentException exception)
+                        {
+                            throw new InvalidDataException("The database contains an invalid category rule.", exception);
                         }
                     }
                 }
@@ -922,6 +1138,65 @@ namespace WebBlocker.Persistence
                             }
 
                             schemaVersion = 4;
+                        }
+                        else if (schemaVersion == 4)
+                        {
+                            using (var migration = CreateCommand(connection, transaction,
+                                "ALTER TABLE AccessEvents RENAME TO AccessEventsV4;" +
+                                "CREATE TABLE AccessEvents (" +
+                                "EventId TEXT NOT NULL PRIMARY KEY, " +
+                                "OccurredAtUtc TEXT NOT NULL, " +
+                                "Domain TEXT NOT NULL, " +
+                                "Method TEXT NOT NULL, " +
+                                "Result INTEGER NOT NULL CHECK (Result IN (0, 1, 2, 3, 4)), " +
+                                "MatchedRuleId TEXT NULL, " +
+                                "PolicyVersion INTEGER NOT NULL CHECK (PolicyVersion >= 1), " +
+                                "RequestedUrl TEXT NULL, " +
+                                "DestinationPort INTEGER NULL CHECK (DestinationPort IS NULL OR DestinationPort BETWEEN 1 AND 65535));" +
+                                "INSERT INTO AccessEvents " +
+                                "(EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion, RequestedUrl, DestinationPort) " +
+                                "SELECT EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion, RequestedUrl, DestinationPort " +
+                                "FROM AccessEventsV4;" +
+                                "DROP TABLE AccessEventsV4;" +
+                                "CREATE INDEX IX_AccessEvents_OccurredAtUtc ON AccessEvents (OccurredAtUtc DESC, EventId DESC);" +
+                                "CREATE INDEX IX_AccessEvents_Domain ON AccessEvents (Domain);" +
+                                "CREATE TABLE BlockedCategories (" +
+                                "Name TEXT NOT NULL PRIMARY KEY COLLATE NOCASE, " +
+                                "SourceName TEXT NULL, " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)));" +
+                                "CREATE TABLE BlockedCategoryRules (" +
+                                "RuleId TEXT NOT NULL PRIMARY KEY, " +
+                                "Category TEXT NOT NULL COLLATE NOCASE, " +
+                                "Domain TEXT NOT NULL, " +
+                                "IncludeSubdomains INTEGER NOT NULL CHECK (IncludeSubdomains IN (0, 1)), " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)), " +
+                                "Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0), " +
+                                "UNIQUE (Domain, IncludeSubdomains), " +
+                                "FOREIGN KEY (Category) REFERENCES BlockedCategories (Name));" +
+                                "CREATE TABLE PolicyVersionBlockedCategories (" +
+                                "Version INTEGER NOT NULL, " +
+                                "Name TEXT NOT NULL COLLATE NOCASE, " +
+                                "SourceName TEXT NULL, " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)), " +
+                                "PRIMARY KEY (Version, Name), " +
+                                "FOREIGN KEY (Version) REFERENCES PolicyVersions (Version) ON DELETE CASCADE);" +
+                                "CREATE TABLE PolicyVersionBlockedCategoryRules (" +
+                                "Version INTEGER NOT NULL, " +
+                                "RuleId TEXT NOT NULL, " +
+                                "Category TEXT NOT NULL COLLATE NOCASE, " +
+                                "Domain TEXT NOT NULL, " +
+                                "IncludeSubdomains INTEGER NOT NULL CHECK (IncludeSubdomains IN (0, 1)), " +
+                                "IsEnabled INTEGER NOT NULL CHECK (IsEnabled IN (0, 1)), " +
+                                "Ordinal INTEGER NOT NULL CHECK (Ordinal >= 0), " +
+                                "PRIMARY KEY (Version, RuleId), " +
+                                "UNIQUE (Version, Ordinal), " +
+                                "UNIQUE (Version, Domain, IncludeSubdomains), " +
+                                "FOREIGN KEY (Version) REFERENCES PolicyVersions (Version) ON DELETE CASCADE);"))
+                            {
+                                migration.ExecuteNonQuery();
+                            }
+
+                            schemaVersion = 5;
                         }
                         else
                         {

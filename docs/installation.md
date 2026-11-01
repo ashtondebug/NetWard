@@ -58,6 +58,26 @@ View policy snapshots with `--policy-history`. Restore one with `--restore-polic
 
 Timed access is enforced only on requests routed through the explicit proxy. Expired HTTP requests receive `timeout.html`. HTTPS CONNECT is not decrypted, so it receives 403 on a new denied connection; an already-open timed HTTPS tunnel is closed at expiry and cannot show a local HTML page.
 
+## Running the alpha endpoint
+
+```powershell
+.\scripts\build.ps1
+.\scripts\start-admin.bat
+.\scripts\start-agent.bat
+```
+
+`NetWard.Agent` reads the same `%LOCALAPPDATA%\WebBlocker\proxy.db` database, starts the proxy on an
+ephemeral loopback port, and exposes a managed browsing button. The managed session passes
+`--proxy-server` and a dedicated `--user-data-dir` to Edge or Chrome, so the user's normal browser profile
+and the Windows proxy settings are not modified. Internet Explorer is a fallback: it applies the per-user
+WinINET proxy values and restores them when the session ends.
+
+Category lists are imported from the administrator's 「不良网站管控」 tab. The repository ships only
+`samples/category-list.example.md` with reserved test domains; reviewed production lists must come from the
+owner. A category match serves `violation.html` and is recorded as `BlockedByCategory`.
+
+The alpha is still an explicitly configured proxy path: it does not intercept direct connections, other
+browsers, VPNs or DNS-over-HTTPS, and it is not an installer.
 ## Future deployment requirements
 
 Release instructions must distinguish program files from writable configuration, database, and log locations; state privilege/runtime requirements; explain pairing and recovery; and document the signed filtering component, if any. An installer/uninstaller will not be produced until filtering behavior and its recovery path have been reviewed and tested.

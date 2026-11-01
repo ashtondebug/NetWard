@@ -9,7 +9,7 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
     <ProjectReference Include="..\WebBlocker.Shared\WebBlocker.Shared.csproj" />
     <ProjectReference Include="..\WebBlocker.Persistence\WebBlocker.Persistence.csproj" />
-    <Content Include="index.html">
+    <Content Include="block.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="timeout.html">

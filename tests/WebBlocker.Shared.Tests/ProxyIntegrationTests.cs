@@ -102,6 +102,62 @@ namespace WebBlocker.Shared.Tests
             }
         }
 
+        public static async Task CategoryMatchServesViolationPageAsync()
+        {
+            var origin = new TcpListener(IPAddress.Loopback, 0);
+            origin.Start();
+            var originPort = ((IPEndPoint)origin.LocalEndpoint).Port;
+
+            var allowedRule = new DomainRule(Guid.NewGuid(), "allowed.example.test", true, true);
+            var adultCategory = new CategoryConfig("成人内容", "adult.md", true);
+            var adultRule = new CategoryRule(Guid.NewGuid(), "成人内容", "adult.example.test", true, true);
+            var policy = new AccessPolicy(
+                AccessMode.BlockList,
+                new[] { allowedRule },
+                new TimedAccessCategory[0],
+                new TimedAccessRule[0],
+                new[] { adultCategory },
+                new[] { adultRule });
+
+            using (var database = new TestDatabase())
+            {
+                var store = new AccessEventStore(database.Path);
+                var policyVersion = store.SavePolicy(policy);
+                using (var proxy = new DomainFilteringProxy(
+                    policy,
+                    0,
+                    new LoopbackDnsResolver(),
+                    GetBlockedPagePath(),
+                    eventStore: store,
+                    policyVersion: policyVersion,
+                    timeoutPagePath: GetTimeoutPagePath()))
+                {
+                    proxy.ValidateBlockPages();
+                    proxy.Start();
+                    try
+                    {
+                        var response = await SendRequestAsync(
+                            proxy.Port,
+                            "GET http://adult.example.test:" + originPort + "/page HTTP/1.1\r\n" +
+                            "Host: adult.example.test:" + originPort + "\r\n\r\n").ConfigureAwait(false);
+
+                        AssertContains(response, "HTTP/1.1 403 Forbidden");
+                        AssertContains(response, "此计算机因访问违规内容已被阻断");
+                        AssertContains(response, "请等待管理人员与你联系");
+                        AssertFalse(origin.Pending());
+
+                        var events = store.QueryAccessEvents(false, "adult.example.test", 1, 10);
+                        AssertEqual(1L, events.TotalCount);
+                        AssertEqual(ProxyAccessResult.BlockedByCategory, events.Events[0].Result);
+                    }
+                    finally
+                    {
+                        await proxy.StopAsync().ConfigureAwait(false);
+                        origin.Stop();
+                    }
+                }
+            }
+        }
         public static async Task ConnectProxyFiltersAndTunnelsAsync()
         {
             var blockedListener = new TcpListener(IPAddress.Loopback, 0);
@@ -407,7 +463,7 @@ namespace WebBlocker.Shared.Tests
             {
                 var store = new AccessEventStore(database.Path);
                 var policyVersion = store.SavePolicy(policy);
-                var missingPage = Path.Combine(database.DirectoryPath, "missing-index.html");
+                var missingPage = Path.Combine(database.DirectoryPath, "missing-block.html");
                 using (var proxy = new DomainFilteringProxy(
                     policy,
                     0,
@@ -499,7 +555,7 @@ namespace WebBlocker.Shared.Tests
 
         private static string GetBlockedPagePath()
         {
-            var outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "index.html");
+            var outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "block.html");
             if (File.Exists(outputPath))
             {
                 return outputPath;

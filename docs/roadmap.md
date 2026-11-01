@@ -29,9 +29,9 @@ The detailed, stable product contract is in [product requirements and implementa
 
 - [ ] Receive the owner-provided Markdown category files (pornography/gambling and any additional owner-specified categories); record source, version/date, and update process.
 - [ ] Define and test a strict parser with duplicate/invalid-entry reporting and a preview before import.
-- [ ] Persist per-category lists and enabled state without changing the existing allowlist/blocklist behavior unexpectedly.
-- [ ] Enforce the imported domains in the explicit proxy and show accurate active/inactive state in the manager.
-- [ ] On a category match, serve the distinct violation notice for supported HTTP requests; keep HTTPS CONNECT behavior accurately documented.
+- [x] Persist per-category lists and enabled state without changing the existing allowlist/blocklist behavior unexpectedly. (Alpha: `BlockedCategories` / `BlockedCategoryRules` in schema v5)
+- [x] Enforce the imported domains in the explicit proxy and show accurate active/inactive state in the manager. (Alpha)
+- [x] On a category match, serve the distinct violation notice for supported HTTP requests; keep HTTPS CONNECT behavior accurately documented. (Alpha: `violation.html`)
 - [ ] Test precedence, subdomains, malformed data, policy reload, older-database migrations, and the notice path.
 - [ ] Do not use the webcam or claim camera/screen capture. Ensure the notice describes only audit evidence actually collected.
 

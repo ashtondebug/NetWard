@@ -1,3 +1,7 @@
+> **说明（2026-11）**：本目录中的两个项目是**静态设计参考**。已交付的 Modern Alpha 位于
+> [`src/NetWard.Modern`](../../src/NetWard.Modern)，它通过 `NetWard.EngineBridge` 接入真实策略、分类与
+> 访问事件，并提供启停保护与受管浏览。下面的演示不连接设备、不执行过滤。
+
 # NetWard Modern Demo
 
 This directory contains two independent WinUI 3 interface demos:

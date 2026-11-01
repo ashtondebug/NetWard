@@ -7,7 +7,8 @@ namespace WebBlocker.Persistence
         AllowedByPolicy = 0,
         BlockedByPolicy = 1,
         BlockPageFailure = 2,
-        BlockedByTimeLimit = 3
+        BlockedByTimeLimit = 3,
+        BlockedByCategory = 4
     }
 
     public sealed class ProxyAccessEvent
@@ -38,10 +39,7 @@ namespace WebBlocker.Persistence
                 throw new ArgumentException("An event domain is required.", "domain");
             }
 
-            if (result != ProxyAccessResult.AllowedByPolicy &&
-                result != ProxyAccessResult.BlockedByPolicy &&
-                result != ProxyAccessResult.BlockPageFailure &&
-                result != ProxyAccessResult.BlockedByTimeLimit)
+            if (!IsKnownResult(result))
             {
                 throw new ArgumentOutOfRangeException("result");
             }
@@ -89,6 +87,15 @@ namespace WebBlocker.Persistence
         public bool IsBlocked
         {
             get { return Result != ProxyAccessResult.AllowedByPolicy; }
+        }
+
+        internal static bool IsKnownResult(ProxyAccessResult result)
+        {
+            return result == ProxyAccessResult.AllowedByPolicy ||
+                   result == ProxyAccessResult.BlockedByPolicy ||
+                   result == ProxyAccessResult.BlockPageFailure ||
+                   result == ProxyAccessResult.BlockedByTimeLimit ||
+                   result == ProxyAccessResult.BlockedByCategory;
         }
 
         private static string NormalizeMethod(string method)

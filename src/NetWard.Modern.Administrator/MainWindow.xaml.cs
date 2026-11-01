@@ -1,0 +1,688 @@
+using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Windows.Graphics;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
+
+namespace NetWard.Modern.Administrator;
+
+public sealed partial class MainWindow : Window
+{
+    private readonly AdminEngineClient _client;
+    private readonly Dictionary<string, FrameworkElement> _pages;
+    private AdminPolicy _policy = new();
+    private bool _dirty;
+    private bool _managementSwitchReady;
+    private readonly DispatcherQueueTimer _infoBarTimer;
+    private readonly DispatcherQueueTimer _heartbeatTimer;
+    private static readonly string ManagementStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WebBlocker",
+        "management.state");
+    private static readonly string HeartbeatPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WebBlocker",
+        "admin.heartbeat");
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        Title = "NetWard 网界卫士 · Modern 管理端";
+        
+
+        var databasePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WebBlocker",
+            "proxy.db");
+        _client = new AdminEngineClient(databasePath);
+
+        _pages = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal)
+        {
+            ["overview"] = OverviewPage,
+            ["rules"] = RulesPage,
+            ["timed"] = TimedPage,
+            ["categories"] = CategoriesPage,
+            ["logs"] = LogsPage,
+            ["history"] = HistoryPage
+        };
+
+        _infoBarTimer = DispatcherQueue.CreateTimer();
+        _infoBarTimer.Interval = TimeSpan.FromSeconds(5);
+        _infoBarTimer.IsRepeating = false;
+        _infoBarTimer.Tick += (_, _) =>
+        {
+            StatusBar.IsOpen = false;
+            _infoBarTimer.Stop();
+        };
+
+        _heartbeatTimer = DispatcherQueue.CreateTimer();
+        _heartbeatTimer.Interval = TimeSpan.FromSeconds(2);
+        _heartbeatTimer.IsRepeating = true;
+        _heartbeatTimer.Tick += (_, _) => WriteHeartbeat();
+        _heartbeatTimer.Start();
+        WriteHeartbeat();
+        Closed += (_, _) =>
+        {
+            _heartbeatTimer.Stop();
+            try
+            {
+                File.Delete(HeartbeatPath);
+            }
+            catch (Exception)
+            {
+            }
+        };
+
+        RootGrid.Loaded += async (_, _) =>
+        {
+            AppWindow.Resize(new SizeInt32(1400, 900));
+            AppWindow.Move(new PointInt32(50, 20));
+            await LoadAsync();
+        };
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _policy = await _client.GetPolicyAsync();
+            _dirty = false;
+            LoadManagementState();
+            UpdateStats();
+            RefreshRuleList();
+            RefreshTimedLists();
+            RefreshCategoryList();
+            RefreshCategoryCombo();
+            await RefreshLogsAsync();
+            await RefreshHistoryAsync();
+            SetInfoBar(InfoBarSeverity.Informational, "就绪。编辑规则后请点击「保存策略」。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "读取策略失败：" + exception.Message);
+        }
+    }
+
+    private void UpdateStats()
+    {
+        VersionText.Text = _policy.HasPolicy ? _policy.Version.ToString() : "-";
+        ModeText.Text = _policy.HasPolicy
+            ? (_policy.Mode == "AllowList" ? "白名单模式" : "黑名单模式")
+            : "尚未保存策略";
+        RuleCountText.Text = _policy.Rules.Count.ToString();
+        CategoryCountText.Text = _policy.Categories.Count.ToString();
+        CategoryHintText.Text = _policy.HasPolicy
+            ? "分类规则 " + _policy.CategoryRules.Count + " 条"
+            : "尚未导入分类";
+        EventCountText.Text = _policy.Events.ToString();
+        VersionFooter.Text = "策略版本 " + (_policy.HasPolicy ? _policy.Version.ToString() : "-");
+        SaveButton.IsEnabled = _dirty || !_policy.HasPolicy;
+        ModeCombo.SelectedIndex = _policy.Mode == "BlockList" ? 1 : 0;
+    }
+
+    private void RefreshRuleList()
+    {
+        RulesList.ItemsSource = null;
+        RulesList.ItemsSource = _policy.Rules;
+        RulesHint.Text = _policy.Rules.Count == 0
+            ? "尚无规则；白名单为空会拒绝全部域名。"
+            : "共 " + _policy.Rules.Count + " 条规则。";
+    }
+
+    private void RefreshTimedLists()
+    {
+        TimedCategoriesList.ItemsSource = null;
+        TimedCategoriesList.ItemsSource = _policy.TimedCategories;
+        TimedRulesList.ItemsSource = null;
+        TimedRulesList.ItemsSource = _policy.TimedRules;
+        TimedCategoryCombo.ItemsSource = _policy.TimedCategories.Select(category => category.Name).ToList();
+    }
+
+    private void RefreshCategoryCombo()
+    {
+        TimedCategoryCombo.ItemsSource = _policy.TimedCategories.Select(category => category.Name).ToList();
+    }
+
+    private void RefreshCategoryList()
+    {
+        CategoriesList.ItemsSource = null;
+        CategoriesList.ItemsSource = _policy.Categories;
+        CategoryHint.Text = _policy.Categories.Count == 0
+            ? "尚未导入分类名单。"
+            : "已导入 " + _policy.Categories.Count + " 个类别 / " + _policy.CategoryRules.Count + " 条分类规则。保存后生效。";
+    }
+
+    private async Task RefreshLogsAsync()
+    {
+        try
+        {
+            var rows = await _client.GetEventsAsync(BlockedOnlyCheck.IsChecked == true, LogSearch.Text);
+            LogsList.ItemsSource = null;
+            LogsList.ItemsSource = rows;
+            RecentList.ItemsSource = null;
+            RecentList.ItemsSource = rows.Take(10).ToList();
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "读取日志失败：" + exception.Message);
+        }
+    }
+
+    private async Task RefreshHistoryAsync()
+    {
+        try
+        {
+            HistoryList.ItemsSource = null;
+            HistoryList.ItemsSource = await _client.GetHistoryAsync();
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "读取历史失败：" + exception.Message);
+        }
+    }
+
+    private void MarkDirty()
+    {
+        _dirty = true;
+        SaveButton.IsEnabled = true;
+        SetInfoBar(InfoBarSeverity.Warning, "有未保存的更改。点击「保存策略」写入数据库。");
+    }
+
+    private async void Save_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SaveButton.IsEnabled = false;
+            var version = await _client.SavePolicyAsync(_policy);
+            SetInfoBar(InfoBarSeverity.Success, "策略已保存为版本 " + version + "。");
+            await LoadAsync();
+            SetInfoBar(InfoBarSeverity.Success, "策略已保存为版本 " + version + "。");
+        }
+        catch (Exception exception)
+        {
+            SaveButton.IsEnabled = true;
+            SetInfoBar(InfoBarSeverity.Error, "保存失败：" + exception.Message);
+        }
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadAsync();
+    }
+
+    private void Mode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode)
+        {
+            return;
+        }
+
+        if (_policy.Mode != mode)
+        {
+            _policy.Mode = mode;
+            MarkDirty();
+        }
+    }
+
+    private async void AddRule_Click(object sender, RoutedEventArgs e)
+    {
+        var domainBox = new TextBox { Text = DomainBox.Text?.Trim() ?? string.Empty, PlaceholderText = "example.com" };
+        var subdomainCheck = new CheckBox { Content = "包含子域名", IsChecked = SubdomainCheck.IsChecked };
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(domainBox);
+        panel.Children.Add(subdomainCheck);
+
+        var dialog = new ContentDialog
+        {
+            Title = "添加规则",
+            Content = panel,
+            PrimaryButtonText = "添加",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var domain = domainBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "域名不能为空。");
+            return;
+        }
+
+        _policy.Rules.Add(new AdminRule
+        {
+            Domain = domain,
+            IncludeSubdomains = subdomainCheck.IsChecked == true,
+            Enabled = true
+        });
+        DomainBox.Text = string.Empty;
+        RefreshRuleList();
+        MarkDirty();
+    }
+
+    private async void EditRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (RulesList.SelectedItem is not AdminRule rule)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一条规则。");
+            return;
+        }
+
+        var domainBox = new TextBox { Text = rule.Domain };
+        var subdomainCheck = new CheckBox { Content = "包含子域名", IsChecked = rule.IncludeSubdomains };
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(domainBox);
+        panel.Children.Add(subdomainCheck);
+
+        var dialog = new ContentDialog
+        {
+            Title = "编辑规则",
+            Content = panel,
+            PrimaryButtonText = "保存",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var index = _policy.Rules.IndexOf(rule);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var domain = domainBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "域名不能为空。");
+            return;
+        }
+
+        _policy.Rules[index] = new AdminRule
+        {
+            Domain = domain,
+            IncludeSubdomains = subdomainCheck.IsChecked == true,
+            Enabled = rule.Enabled
+        };
+        RefreshRuleList();
+        MarkDirty();
+    }
+
+    private void DeleteRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (RulesList.SelectedItem is not AdminRule rule)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一条规则。");
+            return;
+        }
+
+        _policy.Rules.Remove(rule);
+        RefreshRuleList();
+        MarkDirty();
+    }
+
+    private void ToggleRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (RulesList.SelectedItem is not AdminRule rule)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一条规则。");
+            return;
+        }
+
+        var index = _policy.Rules.IndexOf(rule);
+        _policy.Rules[index] = new AdminRule
+        {
+            Domain = rule.Domain,
+            IncludeSubdomains = rule.IncludeSubdomains,
+            Enabled = !rule.Enabled
+        };
+        RefreshRuleList();
+        MarkDirty();
+    }
+
+    private async void AddTimedCategory_Click(object sender, RoutedEventArgs e)
+    {
+        var name = TimedNameBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "类别名称不能为空。");
+            return;
+        }
+
+        if (_policy.TimedCategories.Any(category => string.Equals(category.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "类别名称重复。");
+            return;
+        }
+
+        var minutes = double.IsNaN(TimedMinutesBox.Value) ? 30 : (int)TimedMinutesBox.Value;
+        _policy.TimedCategories.Add(new AdminTimedCategory { Name = name, LimitMinutes = minutes });
+        TimedNameBox.Text = string.Empty;
+        RefreshTimedLists();
+        MarkDirty();
+        await Task.CompletedTask;
+    }
+
+    private void DeleteTimedCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (TimedCategoriesList.SelectedItem is not AdminTimedCategory category)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一个类别。");
+            return;
+        }
+
+        _policy.TimedCategories.Remove(category);
+        _policy.TimedRules.RemoveAll(rule => string.Equals(rule.Category, category.Name, StringComparison.OrdinalIgnoreCase));
+        RefreshTimedLists();
+        MarkDirty();
+    }
+
+    private void AddTimedRule_Click(object sender, RoutedEventArgs e)
+    {
+        var domain = TimedDomainBox.Text?.Trim();
+        var category = TimedCategoryCombo.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(category))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "请填写域名并选择类别。");
+            return;
+        }
+
+        _policy.TimedRules.Add(new AdminTimedRule
+        {
+            Domain = domain,
+            IncludeSubdomains = TimedSubdomainCheck.IsChecked == true,
+            Category = category,
+            Enabled = true
+        });
+        TimedDomainBox.Text = string.Empty;
+        RefreshTimedLists();
+        MarkDirty();
+    }
+
+    private void DeleteTimedRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (TimedRulesList.SelectedItem is not AdminTimedRule rule)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一条限时网站。");
+            return;
+        }
+
+        _policy.TimedRules.Remove(rule);
+        RefreshTimedLists();
+        MarkDirty();
+    }
+
+    private async void BrowseCategories_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new FileOpenPicker();
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            picker.FileTypeFilter.Add(".md");
+            var file = await picker.PickSingleFileAsync();
+            if (file != null)
+            {
+                CategoryPathBox.Text = file.Path;
+            }
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "无法打开文件选择器：" + exception.Message);
+        }
+    }
+
+    private async void ImportCategories_Click(object sender, RoutedEventArgs e)
+    {
+        var path = CategoryPathBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            SetInfoBar(InfoBarSeverity.Error, "请选择有效的 Markdown 名单文件。");
+            return;
+        }
+
+        try
+        {
+            var parsed = await _client.ParseCategoriesAsync(path);
+            var summary = "类别：" + parsed.Categories.Count + " 个\r\n域名规则：" + parsed.Rules.Count + " 条\r\n重复项：" + parsed.Duplicates;
+            if (parsed.Errors.Count > 0)
+            {
+                summary += "\r\n\r\n问题（前 8 条）：\r\n" + string.Join("\r\n", parsed.Errors.Take(8));
+            }
+
+            summary += "\r\n\r\n导入将替换当前分类名单（同名类别的启用状态保留）。是否继续？";
+            var dialog = new ContentDialog
+            {
+                Title = "导入分类名单",
+                Content = new TextBlock { Text = summary, TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = "导入",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = RootGrid.XamlRoot
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary || parsed.Categories.Count == 0)
+            {
+                return;
+            }
+
+            var enabled = new HashSet<string>(
+                _policy.Categories.Where(category => category.Enabled).Select(category => category.Name),
+                StringComparer.OrdinalIgnoreCase);
+            _policy.Categories.Clear();
+            _policy.CategoryRules.Clear();
+            foreach (var category in parsed.Categories)
+            {
+                category.Enabled = enabled.Contains(category.Name);
+                _policy.Categories.Add(category);
+            }
+
+            _policy.CategoryRules.AddRange(parsed.Rules);
+            RefreshCategoryList();
+            MarkDirty();
+            SetInfoBar(InfoBarSeverity.Warning, "已解析名单，点击「保存策略」后生效。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "导入失败：" + exception.Message);
+        }
+    }
+
+    private void ToggleCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (CategoriesList.SelectedItem is not AdminCategory category)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一个类别。");
+            return;
+        }
+
+        category.Enabled = !category.Enabled;
+        RefreshCategoryList();
+        MarkDirty();
+    }
+
+    private async void LogSearch_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        await RefreshLogsAsync();
+    }
+
+    private async void BlockedOnly_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshLogsAsync();
+    }
+
+    private async void RefreshLogs_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshLogsAsync();
+    }
+
+    private async void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (HistoryList.SelectedItem is not AdminHistoryRow row)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一个历史版本。");
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "恢复策略版本",
+            Content = "将版本 " + row.Version + " 恢复为新的当前版本？现有历史不会被改写。",
+            PrimaryButtonText = "恢复",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootGrid.XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var version = await _client.RestoreAsync(row.Version);
+            await LoadAsync();
+            SetInfoBar(InfoBarSeverity.Success, "已恢复为版本 " + version + "。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "恢复失败：" + exception.Message);
+        }
+    }
+
+    private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string destination ||
+            !_pages.ContainsKey(destination))
+        {
+            return;
+        }
+
+        foreach (var page in _pages.Values)
+        {
+            page.Visibility = Visibility.Collapsed;
+        }
+
+        _pages[destination].Visibility = Visibility.Visible;
+
+        (PageTitle.Text, PageSubtitle.Text) = destination switch
+        {
+            "rules" => ("网页访问规则", "白名单 / 黑名单与域名匹配规则"),
+            "timed" => ("限时访问", "每日连续墙钟额度的类别与网站"),
+            "categories" => ("分类管控", "从管理员审核的 Markdown 导入分类名单"),
+            "logs" => ("访问日志", "本地访问事件，违规记录以红色标注"),
+            "history" => ("策略历史", "按版本恢复，历史只增不改"),
+            _ => ("总览", "本机策略与审计（WebBlocker\\proxy.db）")
+        };
+    }
+
+    private void ThemeSystem_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Default, "跟随系统");
+
+    private void ThemeLight_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Light, "浅色");
+
+    private void ThemeDark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark, "深色");
+
+    private void ApplyTheme(ElementTheme theme, string label)
+    {
+        RootGrid.RequestedTheme = theme;
+        ThemeLabel.Text = label;
+    }
+
+    private void WriteHeartbeat()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(HeartbeatPath));
+            File.WriteAllText(HeartbeatPath, DateTime.UtcNow.ToString("o"));
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private void LoadManagementState()
+    {
+        bool enabled = false;
+        try
+        {
+            if (File.Exists(ManagementStatePath))
+            {
+                enabled = string.Equals(
+                    File.ReadAllText(ManagementStatePath).Trim(),
+                    "enabled",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch (IOException)
+        {
+        }
+
+        _managementSwitchReady = false;
+        ManagementSwitch.IsOn = enabled;
+        _managementSwitchReady = true;
+    }
+
+    private async void ManagementSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_managementSwitchReady)
+        {
+            return;
+        }
+
+        if (!ManagementSwitch.IsOn)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "暂停管理",
+                Content = "暂停后，被控端将停止本地拦截。确定要暂停管理吗？",
+                PrimaryButtonText = "暂停",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = RootGrid.XamlRoot
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                _managementSwitchReady = false;
+                ManagementSwitch.IsOn = true;
+                _managementSwitchReady = true;
+                return;
+            }
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ManagementStatePath));
+            File.WriteAllText(ManagementStatePath, ManagementSwitch.IsOn ? "enabled" : "disabled");
+            SetInfoBar(
+                InfoBarSeverity.Success,
+                ManagementSwitch.IsOn
+                    ? "管理已启用，被控端将在数秒内开始拦截。"
+                    : "管理已暂停，被控端将在数秒内停止拦截。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "写入管理状态失败：" + exception.Message);
+        }
+    }
+    private void SetInfoBar(InfoBarSeverity severity, string message)
+    {
+        StatusBar.Severity = severity;
+        StatusBar.Message = message;
+    }
+}

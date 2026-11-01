@@ -6,3 +6,4 @@
 *.userosscache
 *.sln.docstates
 /demos/modern/publish/
+/artifacts/

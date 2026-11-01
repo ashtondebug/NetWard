@@ -15,6 +15,8 @@ namespace WebBlocker.Shared
         private readonly ReadOnlyCollection<DomainRule> _rules;
         private readonly ReadOnlyCollection<TimedAccessCategory> _timedAccessCategories;
         private readonly ReadOnlyCollection<TimedAccessRule> _timedAccessRules;
+        private readonly ReadOnlyCollection<CategoryConfig> _categories;
+        private readonly ReadOnlyCollection<CategoryRule> _categoryRules;
 
         public AccessPolicy(AccessMode mode, IEnumerable<DomainRule> rules)
             : this(mode, rules, new TimedAccessCategory[0], new TimedAccessRule[0])
@@ -26,6 +28,23 @@ namespace WebBlocker.Shared
             IEnumerable<DomainRule> rules,
             IEnumerable<TimedAccessCategory> timedAccessCategories,
             IEnumerable<TimedAccessRule> timedAccessRules)
+            : this(
+                mode,
+                rules,
+                timedAccessCategories,
+                timedAccessRules,
+                new CategoryConfig[0],
+                new CategoryRule[0])
+        {
+        }
+
+        public AccessPolicy(
+            AccessMode mode,
+            IEnumerable<DomainRule> rules,
+            IEnumerable<TimedAccessCategory> timedAccessCategories,
+            IEnumerable<TimedAccessRule> timedAccessRules,
+            IEnumerable<CategoryConfig> categories,
+            IEnumerable<CategoryRule> categoryRules)
         {
             if (mode != AccessMode.AllowList && mode != AccessMode.BlockList)
             {
@@ -45,6 +64,16 @@ namespace WebBlocker.Shared
             if (timedAccessRules == null)
             {
                 throw new ArgumentNullException("timedAccessRules");
+            }
+
+            if (categories == null)
+            {
+                throw new ArgumentNullException("categories");
+            }
+
+            if (categoryRules == null)
+            {
+                throw new ArgumentNullException("categoryRules");
             }
 
             var ruleList = new List<DomainRule>();
@@ -119,10 +148,59 @@ namespace WebBlocker.Shared
                 timedRuleList.Add(timedRule);
             }
 
+            var blockedCategoryList = new List<CategoryConfig>();
+            var blockedCategoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var category in categories)
+            {
+                if (category == null)
+                {
+                    throw new ArgumentException("A policy cannot contain a null blocked-content category.", "categories");
+                }
+
+                if (!blockedCategoryNames.Add(category.Name))
+                {
+                    throw new ArgumentException("Blocked-content category names must be unique.", "categories");
+                }
+
+                blockedCategoryList.Add(category);
+            }
+
+            var categoryRuleList = new List<CategoryRule>();
+            var categoryRuleIds = new HashSet<Guid>();
+            var categoryRuleKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var categoryRule in categoryRules)
+            {
+                if (categoryRule == null)
+                {
+                    throw new ArgumentException("A policy cannot contain a null category rule.", "categoryRules");
+                }
+
+                if (!categoryRuleIds.Add(categoryRule.Id))
+                {
+                    throw new ArgumentException("Category rule IDs must be unique.", "categoryRules");
+                }
+
+                var key = categoryRule.Domain + "|" + categoryRule.IncludeSubdomains;
+                if (!categoryRuleKeys.Add(key))
+                {
+                    throw new ArgumentException("Duplicate category domain rules are not allowed.", "categoryRules");
+                }
+
+                if (!blockedCategoryNames.Contains(categoryRule.Category))
+                {
+                    throw new ArgumentException(
+                        "Every category rule must reference a configured category.", "categoryRules");
+                }
+
+                categoryRuleList.Add(categoryRule);
+            }
+
             Mode = mode;
             _rules = ruleList.AsReadOnly();
             _timedAccessCategories = categoryList.AsReadOnly();
             _timedAccessRules = timedRuleList.AsReadOnly();
+            _categories = blockedCategoryList.AsReadOnly();
+            _categoryRules = categoryRuleList.AsReadOnly();
         }
 
         public AccessMode Mode { get; private set; }
@@ -140,6 +218,16 @@ namespace WebBlocker.Shared
         public ReadOnlyCollection<TimedAccessRule> TimedAccessRules
         {
             get { return _timedAccessRules; }
+        }
+
+        public ReadOnlyCollection<CategoryConfig> Categories
+        {
+            get { return _categories; }
+        }
+
+        public ReadOnlyCollection<CategoryRule> CategoryRules
+        {
+            get { return _categoryRules; }
         }
     }
 }

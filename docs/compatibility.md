@@ -3,7 +3,7 @@
 ## Target baseline
 
 - **Legacy edition (both Administrator and Agent):** minimum planned OS Windows 7 SP1, x86 and x64; .NET Framework 4.8 where applicable; retain the current desktop UI style. The current WinForms administrator is only a local prototype, not a validated Legacy release.
-- **Modern edition (both Administrator and Agent):** native WinUI 3 UI. The minimum Windows build, Windows App SDK/runtime version, .NET target, architectures, and package/deployment prerequisites are undecided and require validation before implementation.
+- **Modern edition (both Administrator and Agent):** native WinUI 3 UI. The Alpha Modern front-end (`src/NetWard.Modern`) uses net9.0-windows10.0.19041.0, Windows App SDK 2.6.4 and win-x64, and reuses the net48 engine through `NetWard.EngineBridge`; it is not a Modern endpoint agent and has not been tested on a clean minimum-build machine.
 - No Windows 7 compatibility is promised for the Modern edition. A higher Modern OS floor must not change the Legacy floor.
 - Windows 7 support is a target, not a test result. Windows 7 is out of support.
 

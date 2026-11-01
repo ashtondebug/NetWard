@@ -187,6 +187,16 @@ namespace WebBlocker.ProxyHost
                 Console.Error.WriteLine("Access to the local policy database was denied: " + exception.Message);
                 return 1;
             }
+            catch (InvalidDataException exception)
+            {
+                Console.Error.WriteLine("The local policy database is not compatible with this version: " + exception.Message);
+                return 1;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine("The proxy host stopped because of an unexpected error: " + exception);
+                return 1;
+            }
         }
 
         private static ManualResetEventSlim _shutdownEvent;
