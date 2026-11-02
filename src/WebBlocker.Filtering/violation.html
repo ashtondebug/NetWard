@@ -16,7 +16,7 @@
       -webkit-font-smoothing: antialiased;
     }
     * { box-sizing: border-box; }
-    html { min-height: 100%; }
+    html { min-height: 100%; overflow-x: hidden; }
     body {
       min-width: 280px;
       min-height: 100vh;
@@ -133,5 +133,5 @@
         }
       });
     }());
-  </script></body>
+  </script><script>window.addEventListener("load", function () { window.scrollTo(0, 0); });</script></body>
 </html>

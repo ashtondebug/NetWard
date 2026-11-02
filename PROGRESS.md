@@ -78,6 +78,37 @@ NetWard 现在是一个**可真正运行的单机 Alpha**：管理端配置策�
 
 - 管理端总览移除外层 ScrollViewer，改为「统计卡 Auto + 事件列表 *」的固定行布局；只保留 ListView 自身滚动条，消除双层滚动冲突。
 
+### 访问申请落地与代理稳定性（2026-11-02）
+
+- 拦截页表单改为 `fetch` 提交到本机 `http://127.0.0.1:18765/request`；`AccessRequestServer` 追加保存到 `%LOCALAPPDATA%\\WebBlocker\\access-requests.jsonl`。
+- 管理端新增「访问申请」页：读取本机申请，选中后一键把域名加入规则并保存策略。
+- 代理 accept 循环遇到客户端重置不再退出；此前监听仍在但不再接受连接，导致未命中网站访问超时/变慢。
+- 被控端注册进程退出/未处理异常时恢复系统代理，避免残留失效代理。
+- 实测：表单提交生成 JSONL；允许的 HTTPS 走代理约 0.09s；被拦截 HTTPS 返回 1.8MB 拦截页。
+
+### 被拦截 HTTPS 显示拦截页（本地 CA，2026-11-02）
+
+- `HttpsInterception` 仅对被策略拒绝的 443 CONNECT 终止 TLS：签发目标站点叶证书、读取请求头并返回 `block.html` / `timeout.html` / `violation.html`；允许的 HTTPS 仍原样隧道。
+- 本地根 CA `CN=NetWard Local CA` 安装到当前用户 Root 存储，私钥与证书位于 `%LOCALAPPDATA%\\WebBlocker\\https-ca.pfx`（Alpha 未加密，安全边界已记录）。
+- 修复 TLS 请求头跨包读取导致的浏览器“加载中”卡死。
+- 实测普通 Edge（系统代理）访问 `https://www.baidu.com/` 显示 NetWard 拦截页且证书锁正常；HTTP 同样显示拦截页。
+- 已知限制：Firefox 默认不信任 Windows 证书库；CA 私钥可签发任意证书，必须仅在授权测试设备使用。
+
+### 默认接管系统代理（2026-11-02）
+
+- 被控端启用管理时自动写入当前用户 WinINET 代理：`ProxyEnable=1`、`ProxyServer=127.0.0.1:<port>`，并临时清除 PAC、追加 `<local>` 绕过。
+- 暂停管理或正常退出时从 `%LOCALAPPDATA%\\WebBlocker\\system-proxy.backup.json` 恢复原 `ProxyEnable/ProxyServer/ProxyOverride/AutoConfigURL`，删除备份。
+- 启动时若发现遗留备份（上次异常退出），先恢复再按当前管理状态决定是否重新接管。
+- 普通 Edge 不经 `--proxy-server` 参数即可命中拦截：实测 `http://www.baidu.com/` 显示拦截页；暂停管理后代理恢复为原 Clash 设置。
+- HTTPS 仍只拒绝 CONNECT（403），浏览器显示连接失败，不显示拦截 HTML。
+
+### 策略热更新：管理端保存后被控端立即生效（2026-11-02）
+
+- `DomainFilteringProxy` 在请求路径按 1 秒节流查询数据库策略版本；版本变化时原地替换策略对象，不重启进程、不改变监听端口。
+- 新增 `PolicyChanged` 事件；ProxyHost 输出 `POLICY version=N`，被控端解析后 1 秒内刷新界面版本文案。
+- 实测同一代理端口：v7 允许 example.com（200）→ v8 加入规则（403）→ v9 移除规则（200），全程未重启被控端。
+- 30 项测试与代理冒烟测试保持通过。
+
 ### 拦截页彩蛋：world.execute(me);（2026-11-02）
 
 - `block.html` 与 `timeout.html` 的盾牌对号 logo 支持彩蛋：3 秒内快速点击 10 次弹出菜单。

@@ -12,19 +12,19 @@ NetWard（网界卫士）旨在逐步发展为由**管理端**与**被控端**�
 - 被控端执行白名单、黑名单、限时访问及经管理员启用的类别策略，并向管理端同步状态。
 - 提供清晰的本地拦截提示、管理员审批流程、合法退出与故障恢复。
 
-**当前可运行的范围**是本地 WinForms 管理界面、策略/持久化组件和仅监听 `127.0.0.1` 的显式 HTTP/HTTPS CONNECT 代理。代理只处理明确配置为使用它的应用请求；它不强制其他程序走代理，也不应被描述为系统级过滤器。
+**当前可运行的范围**：Modern 被控端在启用管理后设置当前用户的 WinINET 系统代理；仅对被策略拦截的 HTTPS 使用本地 CA 终止 TLS 并返回拦截页，允许的 HTTPS 仍按原样隧道转发。Legacy/命令行代理仍只处理显式配置为使用它的请求。
 
 ## 当前状态
 
 | 能力 | 状态 | 范围与限制 |
 | --- | --- | --- |
-| 白名单/黑名单及域名匹配 | Alpha 已实现 | 仅应用于显式代理收到的请求；重叠规则取最具体命中 |
+| 白名单/黑名单及域名匹配 | Alpha 已实现 | Modern 默认接管系统代理；Legacy/命令行代理仅处理显式请求；重叠规则取最具体命中 |
 | 限时访问 | Alpha 已实现 | 类别叠加于基础策略；首次访问启动每日连续墙钟倒计时，关闭浏览器不暂停 |
-| 三类拦截页 | Alpha 已实现 | `block.html` 普通拦截、`timeout.html` 限时到期、`violation.html` 分类违规；HTTP 可显示，HTTPS CONNECT 不解密 |
+| 三类拦截页 | Alpha 已实现 | `block.html` 普通拦截、`timeout.html` 限时到期、`violation.html` 分类违规；HTTP 与**被拦截的 HTTPS** 都可显示（本地 CA 终止 TLS） |
 | 分类网站管控 | Alpha 已实现 | 管理端从 Markdown 导入、可启用/停用；命中显示违规页并记录为违规事件 |
-| 被控端程序 `NetWard.Agent` | Alpha 新增 | 启动/停止代理、状态与实时事件、启动受管浏览会话 |
-| 受管浏览会话 | Alpha 新增 | 独立浏览器 profile + `--proxy-server`，Edge/Chrome 生效；会话结束即回收 |
-| 访问申请 | 仅界面 | HTTP 页面预填尝试网址并填写理由；提交尚未发送、保存或通知管理员 |
+| 被控端程序 `NetWard.Agent` | 旧版 | 显式代理；当前 Modern 被控端为只读状态界面，启停由管理端控制 |
+| 系统代理与受管浏览 | Alpha 新增 | 启用管理时自动设置当前用户 WinINET 代理，暂停/退出恢复；管理端另提供独立 profile 的受管浏览 |
+| 访问申请 | Alpha 已实现 | 拦截页填写网址/理由后提交到本机 `access-requests.jsonl`；管理端「访问申请」页可查看并一键加入规则 |
 | HTTP 完整网址日志 | 已实现 | 包含路径和查询字符串；查询参数可能含敏感信息 |
 | HTTPS 目标日志 | 部分可见 | 仅可见 CONNECT 主机名和端口；加密路径/查询不可见 |
 | 30 天日志留存 | 本地已实现 | 代理启动及运行时每小时清理；管理端启动时也清理 |
@@ -73,7 +73,7 @@ dotnet build .\NetWard.sln --configuration Release
 - 首次运行需提供策略模式和规则；有意设置空规则时才使用 `--allow-empty-rules`。
 - 默认数据库路径为 `%LOCALAPPDATA%\WebBlocker\proxy.db`；示例使用独立开发数据库。
 
-HTTP 被拒请求会收到本地拦截页。HTTPS CONNECT 被拒时代理返回 403；代理不安装证书、不解密 TLS，也不能在加密连接内显示本地 HTML。直接连接、其他代理、VPN、DoH、QUIC/HTTP/3 等流量可能绕过或避开本原型。
+HTTP 与被拦截的 HTTPS 都会显示本地拦截页：HTTPS 由本地 CA 终止 TLS 后返回页面，未命中策略的 HTTPS 仍原样隧道。直接连接、其他代理、VPN、DoH、QUIC/HTTP/3 等流量仍可能绕过。
 
 
 ### 运行 Alpha（推荐方式）
@@ -161,10 +161,19 @@ dotnet build .\\src\\NetWard.Modern.Administrator\\NetWard.Modern.Administrator.
 
 - 当前是单机原型，代理只绑定 loopback；没有配对、远程同步、登录或管理员角色边界。
 - SQLite 默认位于当前 Windows 用户的 `%LOCALAPPDATA%\WebBlocker\proxy.db`。访问事件在 30 天后清理；备份不会自动创建。
-- HTTP 日志含完整请求 URL（可能含敏感查询参数）。HTTPS CONNECT 不解密，仅记录可见的目标主机和端口。
+- HTTP 日志含完整请求 URL（可能含敏感查询参数）。被拦截的 HTTPS 会在内存中读取请求头以返回拦截页，但不记录加密路径/查询；允许的 HTTPS 隧道不解密。
 - 事件代表代理的策略判断，不证明目标网页成功加载；事件数据库目前也不是防篡改审计库。
 - 本项目不采集摄像头/屏幕图像；设备 IP、交互式 Windows 用户名和浏览时长当前未实现。
-- 不配置代理、不修改 DNS/hosts/防火墙、不安装 WFP 驱动或 Windows 服务，不阻止设备所有者合法恢复软件。
+- 启用管理时配置当前用户的 WinINET 系统代理（保存并在暂停/退出时恢复），不修改 DNS/hosts/防火墙、不安装 WFP 驱动或 Windows 服务。
+
+### HTTPS 拦截与本地 CA
+
+- 被拦截的 HTTPS 使用本地根证书签发目标站点证书，由代理终止 TLS 后返回正常的 NetWard 拦截页；允许访问的 HTTPS 不会被解密。
+- CA 私钥与证书位于 `%LOCALAPPDATA%\WebBlocker\https-ca.pfx`，并安装到**当前用户**的 `Root` 证书存储（`CN=NetWard Local CA`）。
+- Edge/Chrome 使用 Windows 证书存储，因此可直接显示拦截页；Firefox 等使用独立证书库的浏览器需要单独导入该 CA。
+- 移除方式：暂停管理后删除 `https-ca.pfx`，并在「certmgr.msc → 受信任的根证书颁发机构 → 证书」中删除 `NetWard Local CA`。
+- 这是明显的安全边界变化：持有该 CA 私钥即可签发任意站点证书。仅应在授权测试设备上启用，不要把 pfx 或私钥复制到其他机器。
+
 - 部署仅限获得设备所有者或授权管理员同意的测试环境。不要将当前原型用于系统级访问控制。
 
 ## 仓库结构

@@ -113,6 +113,28 @@ namespace WebBlocker.ProxyHost
                     policyVersion = snapshot.Version;
                 }
 
+                HttpsInterception httpsInterceptor = null;
+                try
+                {
+                    var certificateDirectory = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "WebBlocker");
+                    var candidate = new HttpsInterception(certificateDirectory);
+                    if (candidate.EnsureTrusted())
+                    {
+                        httpsInterceptor = candidate;
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine(
+                            "HTTPS block pages are unavailable: the local NetWard root certificate could not be trusted.");
+                    }
+                }
+                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                {
+                    Console.Error.WriteLine("HTTPS block pages are unavailable: " + exception.Message);
+                }
+
                 using (var retentionTimer = new Timer(
                     state => PruneExpiredEvents(store),
                     null,
@@ -123,7 +145,8 @@ namespace WebBlocker.ProxyHost
                     policy,
                     options.Port,
                     eventStore: store,
-                    policyVersion: policyVersion))
+                    policyVersion: policyVersion,
+                    httpsInterceptor: httpsInterceptor))
                 {
                     proxy.ClientError += (sender, eventArgs) =>
                         Console.Error.WriteLine("Proxy error: " + eventArgs.Exception.Message);
@@ -143,6 +166,7 @@ namespace WebBlocker.ProxyHost
                         }
 
                         Console.WriteLine("NetWard 网界卫士本地代理正在监听 127.0.0.1:{0}", proxy.Port);
+                        Console.WriteLine("POLICY version={0}", policyVersion);
                         Console.WriteLine("Policy: {0}; rules: {1}; version: {2}",
                             policy.Mode, policy.Rules.Count, policyVersion);
                         Console.WriteLine("Local policy and access events: " + store.DatabasePath);

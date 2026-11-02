@@ -25,6 +25,8 @@ public sealed class ProxyHostService : IDisposable
 
     public int Port { get; private set; }
 
+    public long PolicyVersion { get; private set; }
+
     public async Task<int> StartAsync()
     {
         if (IsRunning)
@@ -54,6 +56,14 @@ public sealed class ProxyHostService : IDisposable
         {
             if (args.Data == null)
             {
+                return;
+            }
+
+            const string policyMarker = "POLICY version=";
+            if (args.Data.StartsWith(policyMarker, StringComparison.Ordinal) &&
+                long.TryParse(args.Data.Substring(policyMarker.Length).Trim(), out var policyVersion))
+            {
+                PolicyVersion = policyVersion;
                 return;
             }
 
@@ -113,6 +123,7 @@ public sealed class ProxyHostService : IDisposable
             _process.Dispose();
             _process = null;
             Port = 0;
+            PolicyVersion = 0;
         }
     }
 

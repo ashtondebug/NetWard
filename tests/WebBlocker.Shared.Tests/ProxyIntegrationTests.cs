@@ -47,7 +47,7 @@ namespace WebBlocker.Shared.Tests
                     AssertContains(blockedResponse, "申请访问");
                     AssertContains(blockedResponse, "申请访问的网址");
                     AssertContains(blockedResponse, "申请理由");
-                    AssertContains(blockedResponse, "申请未发送");
+                    AssertContains(blockedResponse, "申请已提交");
                     AssertFalse(origin.Pending());
 
                     var originTask = Task.Run(async () =>
@@ -323,7 +323,7 @@ namespace WebBlocker.Shared.Tests
                         AssertContains(response, "申请访问");
                         AssertContains(response, "申请访问的网址");
                         AssertContains(response, "申请理由");
-                        AssertContains(response, "申请未发送");
+                        AssertContains(response, "申请已提交");
                         AssertFalse(response.IndexOf("此网页已被管理员设置为禁止访问", StringComparison.Ordinal) >= 0);
 
                         var events = store.QueryAccessEvents(true, null, 1, 10);

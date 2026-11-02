@@ -38,7 +38,7 @@ Run an explicitly configured local proxy:
 
 Configure a test application manually to use `127.0.0.1:18080`, then press Ctrl+C in the console to stop the proxy. The program binds to loopback only and does not alter Windows settings. It is not an authenticated service; other local processes can connect to it. Do not expose it on a LAN interface.
 
-The legacy default database location remains `%LOCALAPPDATA%\WebBlocker\proxy.db` so existing policy data is preserved after the product rename. It holds policy and proxy access decisions. HTTP events include the complete requested URL, including path and query; query strings may contain sensitive information. HTTPS CONNECT events include the visible destination hostname and port only because TLS is not decrypted. Historical events migrated from older schemas have no retroactively populated URL. Omitting `--mode` on later launches loads the saved policy. Supplying `--mode` replaces the saved rules and increments the policy version; repeat the complete intended rule list. An empty list requires the explicit `--allow-empty-rules` switch.
+The legacy default database location remains `%LOCALAPPDATA%\WebBlocker\proxy.db`. It holds policy and proxy access decisions. HTTP events include the complete requested URL. For blocked HTTPS, the proxy terminates TLS with the local CA to return the block page and reads request headers in memory, but does not store the path/query; allowed HTTPS is tunneled without decryption. Historical events migrated from older schemas have no retroactively populated URL. Omitting `--mode` on later launches loads the saved policy. Supplying `--mode` replaces the saved rules and increments the policy version; repeat the complete intended rule list. An empty list requires the explicit `--allow-empty-rules` switch.
 
 Create a consistent SQLite snapshot without stopping the proxy, choosing a destination that does not already exist:
 
@@ -56,7 +56,7 @@ Both operations accept `--database path` to select a non-default database. Pruni
 
 View policy snapshots with `--policy-history`. Restore one with `--restore-policy-version <version>`; this writes the selected policy as a new version, preserving the existing history and monotonically increasing the current version. Older databases migrate transactionally through schema v4 and preserve existing policy history. Databases newer than the running application are rejected. These local history records do not identify an authenticated administrator and are not tamper-proof against the local account owner.
 
-Timed access is enforced only on requests routed through the explicit proxy. Expired HTTP requests receive `timeout.html`. HTTPS CONNECT is not decrypted, so it receives 403 on a new denied connection; an already-open timed HTTPS tunnel is closed at expiry and cannot show a local HTML page.
+Timed access applies to requests routed through the proxy. Expired HTTP requests receive `timeout.html`. A newly denied HTTPS request is TLS-terminated locally and receives `timeout.html`; an already-open allowed timed HTTPS tunnel is closed at expiry.
 
 ## Running the alpha endpoint
 

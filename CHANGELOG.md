@@ -37,6 +37,13 @@
 - Added a hidden Easter egg to `block.html` and `timeout.html`: ten quick clicks on the shield logo open a menu that runs the terminal-style `world.execute(me);` experience inside the block page via an inline `iframe srcdoc`, with CSS, JavaScript, fonts and audio embedded as data URIs (no external requests).
 - Re-encoded the experience audio to 32 kbps mono to keep each self-contained page around 1.8 MB; added an IE-compatible decoding/`document.write` fallback.
 
+- Proxy now hot-reloads the saved policy within one second of an administrator save; the agent no longer needs a restart and the listening port stays stable.
+- The agent refreshes its displayed policy version after the running proxy reports a change.
+
+- Blocked HTTPS requests now show the normal NetWard block page: the agent installs a local root CA, terminates TLS only for denied hosts, and leaves allowed HTTPS tunnels untouched.
+- The agent configures the current-user WinINET system proxy while management is enabled and restores the previous settings on pause/exit.
+- Added URL-shaped rule normalization so `https://example.com/path` is stored as `example.com`; host matching covers both HTTP and HTTPS.
+
 ### Modern Alpha（WinUI 3）与引擎桥
 
 - Added `src/NetWard.EngineBridge`, a net48 console bridge exposing the existing policy/event database as JSON (`status-json`, `policy-json`, `events-json`) and hosting the proxy for a parent process (`run --parent-pid`), so the Modern front-end reuses the verified engine without a second data format.

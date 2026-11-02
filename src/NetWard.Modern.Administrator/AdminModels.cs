@@ -90,3 +90,12 @@ public sealed class CategoryParseResult
     public List<string> Errors { get; } = new();
     public int Duplicates { get; set; }
 }
+public sealed class AdminAccessRequest
+{
+    public string Id { get; set; }
+    public string Url { get; set; }
+    public string Host { get; set; }
+    public string Reason { get; set; }
+    public string TimeText { get; set; }
+    public string StatusText { get; set; }
+}

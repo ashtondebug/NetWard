@@ -75,7 +75,8 @@ namespace WebBlocker.Shared.Tests
             AssertThrows<ArgumentException>(() => DomainName.Normalize(""));
             AssertThrows<ArgumentException>(() => DomainName.Normalize("example.com.."));
             AssertThrows<ArgumentException>(() => DomainName.Normalize("example-.com"));
-            AssertThrows<ArgumentException>(() => DomainName.Normalize("example.com/path"));
+            AssertEqual("example.com", DomainName.Normalize("https://example.com/path"));
+        AssertEqual("www.123.com", DomainName.Normalize("http://www.123.com:8080/a?b=1"));
             AssertThrows<ArgumentException>(() => DomainName.Normalize("127.0.0.1"));
             AssertThrows<ArgumentException>(() => DomainName.Normalize("127.1"));
             AssertThrows<ArgumentException>(() => DomainName.Normalize("2130706433"));

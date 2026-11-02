@@ -23,6 +23,17 @@ namespace WebBlocker.Filtering
         public Exception Exception { get; private set; }
     }
 
+    public sealed class PolicyChangedEventArgs : EventArgs
+    {
+        public PolicyChangedEventArgs(long version)
+        {
+            Version = version;
+        }
+
+        public long Version { get; private set; }
+    }
+
+
     public sealed class DomainFilteringProxy : IDisposable
     {
         private const int MaximumHeaderBytes = 32768;
@@ -30,11 +41,14 @@ namespace WebBlocker.Filtering
         private const int MaximumConcurrentClients = 32;
         private static readonly TimeSpan ClientTimeout = TimeSpan.FromMinutes(5);
 
-        private readonly AccessPolicy _policy;
+        private AccessPolicy _policy;
         private readonly AccessEventStore _eventStore;
-        private readonly long _policyVersion;
+        private long _policyVersion;
+        private readonly object _policySync = new object();
+        private DateTime _nextPolicyRefreshUtc;
         private readonly IProxyDnsResolver _dnsResolver;
         private readonly BlockPageCatalog _pageCatalog;
+        private readonly HttpsInterception _httpsInterceptor;
         private readonly Func<DateTime> _localClock;
         private readonly SemaphoreSlim _clientSlots;
         private readonly ConcurrentDictionary<TcpClient, Task> _connections =
@@ -54,7 +68,8 @@ namespace WebBlocker.Filtering
             long policyVersion = 1,
             string timeoutPagePath = null,
             Func<DateTime> localClock = null,
-            BlockPageCatalog pageCatalog = null)
+            BlockPageCatalog pageCatalog = null,
+            HttpsInterception httpsInterceptor = null)
         {
             if (policy == null)
             {
@@ -85,6 +100,7 @@ namespace WebBlocker.Filtering
             _eventStore = eventStore;
             _policyVersion = policyVersion;
             _dnsResolver = dnsResolver ?? new SystemProxyDnsResolver();
+            _httpsInterceptor = httpsInterceptor;
             _pageCatalog = pageCatalog ?? new BlockPageCatalog(
                     blockedPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BlockPageCatalog.BlockFileName),
                     timeoutPagePath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, BlockPageCatalog.TimeoutFileName),
@@ -95,6 +111,7 @@ namespace WebBlocker.Filtering
         }
 
         public event EventHandler<ProxyErrorEventArgs> ClientError;
+        public event EventHandler<PolicyChangedEventArgs> PolicyChanged;
 
         public int Port { get; private set; }
 
@@ -112,6 +129,48 @@ namespace WebBlocker.Filtering
             ThrowIfDisposed();
             _pageCatalog.Validate();
         }
+        private void RefreshPolicyIfChanged()
+        {
+            var now = DateTime.UtcNow;
+            if (now < _nextPolicyRefreshUtc)
+            {
+                return;
+            }
+
+            long changedVersion = 0;
+            lock (_policySync)
+            {
+                if (now < _nextPolicyRefreshUtc)
+                {
+                    return;
+                }
+
+                _nextPolicyRefreshUtc = now.AddSeconds(1);
+                try
+                {
+                    PolicySnapshot snapshot;
+                    if (_eventStore.TryLoadPolicy(out snapshot) &&
+                        snapshot.Version != _policyVersion)
+                    {
+                        _policy = snapshot.Policy;
+                        _policyVersion = snapshot.Version;
+                        changedVersion = snapshot.Version;
+                    }
+                }
+                catch (Exception exception) when (!(exception is OutOfMemoryException))
+                {
+                    Debug.WriteLine("Policy refresh failed: " + exception.Message);
+                }
+            }
+
+            var handler = PolicyChanged;
+            if (changedVersion != 0 && handler != null)
+            {
+                handler(this, new PolicyChangedEventArgs(changedVersion));
+            }
+        }
+
+
         public void Start()
         {
             ThrowIfDisposed();
@@ -203,7 +262,7 @@ namespace WebBlocker.Filtering
                     _clientSlots.Release();
                     break;
                 }
-                catch (SocketException)
+                catch (SocketException exception)
                 {
                     _clientSlots.Release();
                     if (_stopToken.IsCancellationRequested)
@@ -211,7 +270,10 @@ namespace WebBlocker.Filtering
                         break;
                     }
 
-                    throw;
+                    // A client can disappear between SYN and accept. That must not kill the
+                    // accept loop, otherwise the listener stays open but stops serving.
+                    ReportError(exception);
+                    continue;
                 }
 
                 client.ReceiveTimeout = (int)ClientTimeout.TotalMilliseconds;
@@ -299,17 +361,26 @@ namespace WebBlocker.Filtering
                 return;
             }
 
-                        // Blocked-content categories are evaluated first: a category match selects the distinct
+            RefreshPolicyIfChanged();
+            AccessPolicy policy;
+            long policyVersion;
+            lock (_policySync)
+            {
+                policy = _policy;
+                policyVersion = _policyVersion;
+            }
+
+            // Blocked-content categories are evaluated first: a category match selects the distinct
             // violation notice and wins over the base allowlist/blocklist result.
-            var categoryDecision = PolicyEvaluator.EvaluateCategory(_policy, request.Host);
-            var decision = PolicyEvaluator.Evaluate(_policy, request.Host);
+            var categoryDecision = PolicyEvaluator.EvaluateCategory(policy, request.Host);
+            var decision = PolicyEvaluator.Evaluate(policy, request.Host);
             var timedRule = categoryDecision == null && decision.IsAllowed
-                ? PolicyEvaluator.FindTimedAccessRule(_policy, request.Host)
+                ? PolicyEvaluator.FindTimedAccessRule(policy, request.Host)
                 : null;
             TimedAccessWindow timedWindow = null;
             if (timedRule != null)
             {
-                var timedCategory = _policy.TimedAccessCategories.FirstOrDefault(item =>
+                var timedCategory = policy.TimedAccessCategories.FirstOrDefault(item =>
                     string.Equals(item.Name, timedRule.Category, StringComparison.OrdinalIgnoreCase));
                 if (timedCategory == null)
                 {
@@ -347,7 +418,7 @@ namespace WebBlocker.Filtering
                     request.Method,
                     result,
                     matchedRuleId,
-                    _policyVersion,
+                    policyVersion,
                     request.RequestedUrl,
                     request.Port));
             }
@@ -360,6 +431,27 @@ namespace WebBlocker.Filtering
             {
                 if (request.IsConnect)
                 {
+                    if (_httpsInterceptor != null && request.Port == 443)
+                    {
+                        var interceptedPageKind = _pageCatalog.Resolve(result);
+                        try
+                        {
+                            await _httpsInterceptor.ServeBlockedPageAsync(
+                                client,
+                                request.Host,
+                                _pageCatalog.GetPath(interceptedPageKind),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception exception) when (!(exception is OutOfMemoryException))
+                        {
+                            ReportError(new InvalidOperationException(
+                                "The HTTPS block page could not be served.", exception));
+                            client.Close();
+                        }
+
+                        return;
+                    }
+
                     await WriteTextResponseAsync(client.GetStream(), 403, "Forbidden", cancellationToken)
                         .ConfigureAwait(false);
                 }

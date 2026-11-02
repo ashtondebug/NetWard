@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Diagnostics;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -50,6 +52,7 @@ public sealed partial class MainWindow : Window
             ["rules"] = RulesPage,
             ["timed"] = TimedPage,
             ["categories"] = CategoriesPage,
+            ["requests"] = RequestsPage,
             ["logs"] = LogsPage,
             ["history"] = HistoryPage
         };
@@ -234,7 +237,7 @@ public sealed partial class MainWindow : Window
 
     private async void AddRule_Click(object sender, RoutedEventArgs e)
     {
-        var domainBox = new TextBox { Text = DomainBox.Text?.Trim() ?? string.Empty, PlaceholderText = "example.com" };
+        var domainBox = new TextBox { Text = DomainBox.Text?.Trim() ?? string.Empty, PlaceholderText = "example.com（可粘贴 https:// 网址）" };
         var subdomainCheck = new CheckBox { Content = "包含子域名", IsChecked = SubdomainCheck.IsChecked };
         var panel = new StackPanel { Spacing = 10 };
         panel.Children.Add(domainBox);
@@ -581,11 +584,17 @@ public sealed partial class MainWindow : Window
 
         _pages[destination].Visibility = Visibility.Visible;
 
+        if (destination == "requests")
+        {
+            RefreshRequests();
+        }
+
         (PageTitle.Text, PageSubtitle.Text) = destination switch
         {
             "rules" => ("网页访问规则", "白名单 / 黑名单与域名匹配规则"),
             "timed" => ("限时访问", "每日连续墙钟额度的类别与网站"),
             "categories" => ("分类管控", "从管理员审核的 Markdown 导入分类名单"),
+            "requests" => ("访问申请", "来自拦截页、保存在本机的访问申请"),
             "logs" => ("访问日志", "本地访问事件，违规记录以红色标注"),
             "history" => ("策略历史", "按版本恢复，历史只增不改"),
             _ => ("总览", "本机策略与审计（WebBlocker\\proxy.db）")
@@ -678,6 +687,141 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             SetInfoBar(InfoBarSeverity.Error, "写入管理状态失败：" + exception.Message);
+        }
+    }
+    private void ManagedBrowse_Click(object sender, RoutedEventArgs e)
+    {
+        var portPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WebBlocker",
+            "agent.port");
+        if (!File.Exists(portPath) ||
+            !int.TryParse(File.ReadAllText(portPath).Trim(), out var port) ||
+            port <= 0)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "未检测到被控端代理。请先启动被控端，并确认「启用管理」已打开。");
+            return;
+        }
+
+        var edge = FindEdge();
+        if (edge == null)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "未找到 Microsoft Edge，无法打开受管浏览。");
+            return;
+        }
+
+        var profile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WebBlocker",
+            "managed-browser");
+        Directory.CreateDirectory(profile);
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = edge,
+                Arguments = "--proxy-server=http://127.0.0.1:" + port +
+                    " --user-data-dir=\"" + profile + "\" --disable-quic --window-size=1200,900 --new-window http://example.com/",
+                UseShellExecute = false
+            });
+            SetInfoBar(InfoBarSeverity.Success, "已用受管代理打开浏览器（端口 " + port + "）。访问未授权网站应显示拦截页。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "打开受管浏览失败：" + exception.Message);
+        }
+    }
+
+    private static string FindEdge()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft", "Edge", "Application", "msedge.exe")
+        };
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+    private void RefreshRequests_Click(object sender, RoutedEventArgs e) => RefreshRequests();
+
+    private void RefreshRequests()
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WebBlocker",
+            "access-requests.jsonl");
+        var items = new List<AdminAccessRequest>();
+        if (File.Exists(path))
+        {
+            foreach (var line in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var document = JsonDocument.Parse(line.TrimStart('\uFEFF'));
+                    var root = document.RootElement;
+                    var createdAt = root.TryGetProperty("createdAtUtc", out var created) &&
+                                    created.TryGetDateTime(out var parsed)
+                        ? parsed.ToLocalTime()
+                        : DateTime.Now;
+                    items.Add(new AdminAccessRequest
+                    {
+                        Id = root.TryGetProperty("id", out var id) ? id.GetString() : "",
+                        Url = root.TryGetProperty("url", out var url) ? url.GetString() : "",
+                        Host = root.TryGetProperty("host", out var host) ? host.GetString() : "",
+                        Reason = root.TryGetProperty("reason", out var reason) ? reason.GetString() : "",
+                        TimeText = createdAt.ToString("MM-dd HH:mm"),
+                        StatusText = "待处理"
+                    });
+                }
+                catch (JsonException)
+                {
+                }
+            }
+        }
+
+        RequestsList.ItemsSource = items;
+        RequestsHint.Text = items.Count == 0
+            ? "暂无申请。拦截页提交后会保存在这里。"
+            : "共 " + items.Count + " 条申请；批准后会将域名加入当前策略。";
+    }
+
+    private async void ApproveRequest_Click(object sender, RoutedEventArgs e)
+    {
+        if (RequestsList.SelectedItem is not AdminAccessRequest request ||
+            string.IsNullOrWhiteSpace(request.Host))
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先选择一条带域名的申请。");
+            return;
+        }
+
+        if (_policy.Rules.Any(rule => string.Equals(rule.Domain, request.Host, StringComparison.OrdinalIgnoreCase)))
+        {
+            request.StatusText = "已在规则中";
+            SetInfoBar(InfoBarSeverity.Informational, request.Host + " 已在当前规则中。");
+            return;
+        }
+
+        _policy.Rules.Add(new AdminRule
+        {
+            Domain = request.Host,
+            IncludeSubdomains = false,
+            Enabled = true
+        });
+        try
+        {
+            await _client.SavePolicyAsync(_policy);
+            request.StatusText = "已允许";
+            RefreshRuleList();
+            SetInfoBar(InfoBarSeverity.Success, "已允许 " + request.Host + "，策略已保存并即时生效。");
+        }
+        catch (Exception exception)
+        {
+            _policy.Rules.Remove(_policy.Rules.Last());
+            SetInfoBar(InfoBarSeverity.Error, "保存失败：" + exception.Message);
         }
     }
     private void SetInfoBar(InfoBarSeverity severity, string message)

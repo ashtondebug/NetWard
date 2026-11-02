@@ -14,6 +14,45 @@ namespace WebBlocker.Shared
             }
 
             var candidate = value.Trim();
+
+            // Accept pasted URLs as well as bare host names: strip scheme, user-info,
+            // path/query/fragment and an explicit port. The proxy matches host names,
+            // so one rule covers both http:// and https:// requests.
+            var schemeSeparator = candidate.IndexOf("://", StringComparison.Ordinal);
+            if (schemeSeparator >= 0)
+            {
+                candidate = candidate.Substring(schemeSeparator + 3);
+            }
+            else if (candidate.StartsWith("//", StringComparison.Ordinal))
+            {
+                candidate = candidate.Substring(2);
+            }
+
+            var userInfoSeparator = candidate.LastIndexOf('@');
+            if (userInfoSeparator >= 0)
+            {
+                candidate = candidate.Substring(userInfoSeparator + 1);
+            }
+
+            var pathSeparator = candidate.IndexOfAny(new[] { '/', '?', '#' });
+            if (pathSeparator >= 0)
+            {
+                candidate = candidate.Substring(0, pathSeparator);
+            }
+
+            var portSeparator = candidate.LastIndexOf(':');
+            if (portSeparator > 0 &&
+                candidate.IndexOf(':') == portSeparator &&
+                int.TryParse(candidate.Substring(portSeparator + 1), out _))
+            {
+                candidate = candidate.Substring(0, portSeparator);
+            }
+
+            if (candidate.Length == 0)
+            {
+                throw new ArgumentException("A domain name is required.", "value");
+            }
+
             if (candidate.EndsWith(".", StringComparison.Ordinal))
             {
                 candidate = candidate.Substring(0, candidate.Length - 1);

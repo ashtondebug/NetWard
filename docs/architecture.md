@@ -33,9 +33,9 @@ WFP is available starting with Windows Vista and exposes user-mode and kernel-mo
 The first enforcement prototype is a visible console process that listens only on `127.0.0.1`. It filters only requests from applications explicitly configured to use that proxy:
 
 - HTTP absolute-form requests are matched before a connection to the destination is made. Allowed requests are forwarded as one request per connection, with hop-by-hop/proxy authentication headers removed and `Connection: close` enforced.
-- HTTPS `CONNECT` authorities are matched before a TCP tunnel is opened. An allowed connection is tunneled without decrypting TLS.
+- HTTPS `CONNECT` authorities are matched before a TCP tunnel is opened. Allowed connections are tunneled without decrypting TLS; blocked connections are terminated locally with a NetWard leaf certificate so the normal block page can be served.
 - The base allowlist/blocklist decision runs first. For base-allowed hosts matching a manually configured timed-access domain rule, the first request each local calendar day starts a continuous wall-clock window for that category. Closing a browser does not pause it; the window is persisted and expires at the earlier of the category's configured duration or local midnight. Category rules are additional to, not replacements for, the base policy.
-- Denied HTTP requests receive the bundled offline `block.html`, styled for light/dark mode and including an attempted-URL-prefilled access-request form UI. The form does not transmit requests yet: authenticated agent/admin communication and notifications are not implemented. Denied HTTPS CONNECT requests receive HTTP 403 to the proxy client and are not redirected to a local page. Requests blocked by an expired timed window receive the separate offline `timeout.html`. An active timed HTTPS tunnel is closed at expiry, but no local HTML can be shown inside HTTPS without TLS interception.
+- Denied HTTP requests receive the bundled offline `block.html`. Denied HTTPS requests are TLS-terminated with a locally trusted certificate and receive the same HTML page; allowed HTTPS remains an untouched tunnel. Requests blocked by an expired timed window receive `timeout.html`. The access-request form remains UI-only.
 - The standalone violation notice is selected when a blocked-content category matches. A plain static page cannot force an already-running browser into fullscreen. HTML cannot force the already-running browser into fullscreen after navigation without a user gesture. A no-confirmation fullscreen notice requires the controlled browsing session to have been launched in kiosk mode beforehand (or a Windows-managed kiosk shell). That deployment/agent flow, administrator-authenticated exit, and recovery path are not implemented. The requested default-browser fallback may not support kiosk fullscreen and therefore cannot guarantee fullscreen.
 - Malformed authorities and request/Host mismatches are rejected. Header size is limited to 32 KiB, body size to 16 MiB, and concurrent clients to 32. Chunked request bodies, `Expect`, and protocol upgrades are unsupported.
 - The proxy does not change Windows settings, start automatically, enforce that applications use it, or report traffic from applications that bypass it. It is not a service, endpoint firewall, or system-wide filter.
@@ -50,11 +50,11 @@ The integration tests use only local loopback endpoints; they exercise actual HT
 
 This prototype does not claim that a decision from the policy library blocks direct packets. Until a system-level enforcement component is approved and validated:
 
-- Direct HTTP and HTTPS requests are not intercepted; only explicitly proxied requests are filtered.
-- HTTPS paths are not inspected or decrypted.
+- Direct HTTP and HTTPS requests bypass the proxy path unless the application uses the system proxy or an explicit proxy. The Modern agent configures the current user WinINET proxy while management is enabled.
+- Allowed HTTPS is not decrypted. Blocked HTTPS is terminated locally only to serve the block page; its request headers are read in memory and its path/query is not stored.
 - Timed access tracks a fixed wall-clock window from first request, not foreground-tab or active browsing time. The local system clock and local database are not tamper-resistant.
 - DNS-over-HTTPS, QUIC, explicit proxies, and VPNs are not controlled.
-- A local `index.html` cannot safely replace an HTTPS page without a browser-trusted interception mechanism; no TLS interception is planned by default.
+- Blocked HTTPS pages depend on a locally installed root CA (`%LOCALAPPDATA%\WebBlocker\https-ca.pfx`). Browsers that do not use the Windows trust store (for example Firefox by default) will show a certificate error instead of the page.
 - No filtering failure mode or enforcement health state exists yet.
 
 ## Policy semantics

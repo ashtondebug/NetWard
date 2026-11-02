@@ -81,12 +81,41 @@ namespace WebBlocker.EngineBridge
                 return 2;
             }
 
+            HttpsInterception httpsInterceptor = null;
+            try
+            {
+                var certificateDirectory = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "WebBlocker");
+                var candidate = new HttpsInterception(certificateDirectory);
+                if (candidate.EnsureTrusted())
+                {
+                    httpsInterceptor = candidate;
+                    File.WriteAllText(
+                        Path.Combine(certificateDirectory, "https-interception.log"),
+                        "trusted=true");
+                }
+                else
+                {
+                    File.WriteAllText(
+                        Path.Combine(certificateDirectory, "https-interception.log"),
+                        "trusted=false");
+                    Console.Error.WriteLine(
+                        "HTTPS block pages are unavailable: the local NetWard root certificate is not trusted.");
+                }
+            }
+            catch (Exception exception) when (!(exception is OutOfMemoryException))
+            {
+                Console.Error.WriteLine("HTTPS block pages are unavailable: " + exception.Message);
+            }
+
             using (var shutdown = new ManualResetEventSlim())
             using (var proxy = new DomainFilteringProxy(
                 snapshot.Policy,
                 options.Port,
                 eventStore: store,
-                policyVersion: snapshot.Version))
+                policyVersion: snapshot.Version,
+                httpsInterceptor: httpsInterceptor))
             {
                 proxy.ClientError += (sender, eventArgs) =>
                     Console.Error.WriteLine("Proxy error: " + eventArgs.Exception.Message);

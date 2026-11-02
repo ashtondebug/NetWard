@@ -20,6 +20,11 @@ public sealed partial class MainWindow : Window
         "WebBlocker",
         "admin.heartbeat");
 
+    private static readonly string AgentPortPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WebBlocker",
+        "agent.port");
+
     private static readonly string ManagementStatePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WebBlocker",
@@ -27,14 +32,18 @@ public sealed partial class MainWindow : Window
 
     private readonly EngineClient _client;
     private readonly ProxyHostService _proxy;
+    private readonly SystemProxyManager _systemProxy = new SystemProxyManager();
+    private readonly AccessRequestServer _accessRequests;
     private readonly DispatcherQueueTimer _connectionTimer;
     private readonly DispatcherQueueTimer _uptimeTimer;
     private readonly DispatcherQueueTimer _managementTimer;
+    private readonly DispatcherQueueTimer _policyTimer;
     private DateTime _connectedAtUtc;
     private TimeSpan _lastDuration;
     private bool _connected;
     private bool _everConnected;
     private bool _managementEnabled;
+    private long _shownPolicyVersion;
 
     public MainWindow()
     {
@@ -48,7 +57,19 @@ public sealed partial class MainWindow : Window
             "WebBlocker",
             "proxy.db");
         _client = new EngineClient(databasePath);
+        _accessRequests = new AccessRequestServer(Path.GetDirectoryName(databasePath));
+        try
+        {
+            _accessRequests.Start();
+        }
+        catch (System.Net.Sockets.SocketException)
+        {
+            // Port 18765 is occupied; the rest of the agent still works.
+        }
+        AppDomain.CurrentDomain.ProcessExit += (_, __) => _systemProxy.Dispose();
+        AppDomain.CurrentDomain.UnhandledException += (_, __) => _systemProxy.Dispose();
         _proxy = new ProxyHostService(databasePath);
+        _systemProxy.RecoverIfNeeded();
 
         DeviceNameText.Text = Environment.MachineName;
         DeviceIpText.Text = GetLocalIPv4();
@@ -65,6 +86,19 @@ public sealed partial class MainWindow : Window
         _uptimeTimer.IsRepeating = true;
         _uptimeTimer.Tick += (_, _) => UpdateUptime();
         _uptimeTimer.Start();
+
+        _policyTimer = DispatcherQueue.CreateTimer();
+        _policyTimer.Interval = TimeSpan.FromSeconds(1);
+        _policyTimer.IsRepeating = true;
+        _policyTimer.Tick += async (_, _) =>
+        {
+            var version = _proxy.PolicyVersion;
+            if (version > 0 && version != _shownPolicyVersion)
+            {
+                await LoadPolicyAsync();
+            }
+        };
+        _policyTimer.Start();
 
         _managementTimer = DispatcherQueue.CreateTimer();
         _managementTimer.Interval = TimeSpan.FromSeconds(2);
@@ -83,7 +117,11 @@ public sealed partial class MainWindow : Window
             _connectionTimer.Stop();
             _uptimeTimer.Stop();
             _managementTimer.Stop();
+            _policyTimer.Stop();
+            _systemProxy.Dispose();
+            _accessRequests.Dispose();
             _proxy.Dispose();
+            TryDeletePortFile();
         };
     }
 
@@ -98,6 +136,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            _shownPolicyVersion = policy.Version;
             PolicyText.Text = "本机策略：版本 " + policy.Version +
                 " · " + (policy.Mode == "AllowList" ? "白名单" : "黑名单") +
                 " · " + policy.Rules + " 条规则";
@@ -136,7 +175,9 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                await _proxy.StartAsync();
+                var port = await _proxy.StartAsync();
+                File.WriteAllText(AgentPortPath, port.ToString());
+                _systemProxy.Enable(port);
             }
             catch (Exception exception)
             {
@@ -146,9 +187,22 @@ public sealed partial class MainWindow : Window
         else
         {
             _proxy.Stop();
+            _systemProxy.Disable();
+            TryDeletePortFile();
         }
 
         UpdateManagementText();
+    }
+
+    private static void TryDeletePortFile()
+    {
+        try
+        {
+            if (File.Exists(AgentPortPath)) File.Delete(AgentPortPath);
+        }
+        catch (IOException)
+        {
+        }
     }
 
     private void UpdateManagementText()
