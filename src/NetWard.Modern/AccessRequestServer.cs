@@ -135,7 +135,7 @@ public sealed class AccessRequestServer : IDisposable
         }
     }
 
-    private static async Task<Request?> ReadRequestAsync(Stream stream, CancellationToken token)
+    private static async Task<Request> ReadRequestAsync(Stream stream, CancellationToken token)
     {
         var buffer = new byte[8192];
         var total = 0;
