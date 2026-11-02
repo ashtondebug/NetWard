@@ -100,7 +100,13 @@
       *, *::before, *::after { scroll-behavior: auto !important; }
     }
   </style>
-</head>
+  <style id="nw-brand-lock">
+    .brand, .brand * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+  </style></head>
 <body>
   <main>
     <p class="eyebrow">NETWARD 网界卫士 · 安全策略执行中</p>
@@ -114,5 +120,18 @@
     </p>
     <footer>NETWARD 网界卫士</footer>
   </main>
-</body>
+  <script>
+    (function () {
+      var brand = document.querySelector(".brand");
+      if (!brand) return;
+      document.addEventListener("copy", function (event) {
+        var selection = window.getSelection();
+        if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+        var range = selection.getRangeAt(0);
+        if (range.intersectsNode && range.intersectsNode(brand)) {
+          event.preventDefault();
+        }
+      });
+    }());
+  </script></body>
 </html>

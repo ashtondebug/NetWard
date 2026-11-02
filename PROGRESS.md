@@ -78,6 +78,15 @@ NetWard 现在是一个**可真正运行的单机 Alpha**：管理端配置策�
 
 - 管理端总览移除外层 ScrollViewer，改为「统计卡 Auto + 事件列表 *」的固定行布局；只保留 ListView 自身滚动条，消除双层滚动冲突。
 
+### 拦截页彩蛋：world.execute(me);（2026-11-02）
+
+- `block.html` 与 `timeout.html` 的盾牌对号 logo 支持彩蛋：3 秒内快速点击 10 次弹出菜单。
+- 菜单「运行」在当前拦截页内用 `iframe srcdoc` 打开终端风格体验，不跳转、不请求 kaixinol.github.io。
+- 体验的 CSS、JS、字体、音频全部内联为 data URI；音频从 98kbps 重编码为 32kbps 单声道以控制体积。
+- 每页增加约 1.78 MB（内联 base64），页面保持完全离线、自包含；violation.html 未加入。
+- 修复重开问题：关闭后清除 iframe 与 data-loaded；兼容不支持 srcdoc 的旧浏览器（document.write 回退）。
+- 验证：30 项测试全绿；Edge 无头截图确认菜单与终端页；解码载荷无 kaixinol/jsdelivr 请求。
+
 ### 管理控制权收归管理端（2026-11-01）
 
 - 被控端移除全部启停按钮（启动/停止保护、启动受管浏览），不再提供任何自行启用或禁止管理的入口。

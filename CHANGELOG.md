@@ -34,6 +34,9 @@
 - Reworked the Modern UI around native WinUI 3: `NavigationView` sidebar, `MicaBackdrop`, system theme brushes, `InfoBar` status, `AutoSuggestBox` search, `ToggleSwitch` theme control and `AccentButtonStyle` primary actions. Removed the custom palette and self-drawn navigation buttons.
 - Fixed a runtime XAML failure by merging `XamlControlsResources` into `Application.Resources`.
 
+- Added a hidden Easter egg to `block.html` and `timeout.html`: ten quick clicks on the shield logo open a menu that runs the terminal-style `world.execute(me);` experience inside the block page via an inline `iframe srcdoc`, with CSS, JavaScript, fonts and audio embedded as data URIs (no external requests).
+- Re-encoded the experience audio to 32 kbps mono to keep each self-contained page around 1.8 MB; added an IE-compatible decoding/`document.write` fallback.
+
 ### Modern Alpha（WinUI 3）与引擎桥
 
 - Added `src/NetWard.EngineBridge`, a net48 console bridge exposing the existing policy/event database as JSON (`status-json`, `policy-json`, `events-json`) and hosting the proxy for a parent process (`run --parent-pid`), so the Modern front-end reuses the verified engine without a second data format.
