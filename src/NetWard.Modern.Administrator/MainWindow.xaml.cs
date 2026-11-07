@@ -14,6 +14,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
+using Windows.UI;
 using WinRT.Interop;
 
 namespace NetWard.Modern.Administrator;
@@ -36,12 +37,17 @@ public sealed partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WebBlocker",
         "admin.heartbeat");
+    private static readonly string ThemeStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WebBlocker",
+        "ui.theme");
 
     public MainWindow()
     {
         InitializeComponent();
         Title = "NetWard 网界卫士 · Modern 管理端";
-        
+
+        ApplySavedTheme();
 
         var databasePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -777,10 +783,111 @@ public sealed partial class MainWindow : Window
 
     private void ThemeDark_Click(object sender, RoutedEventArgs e) => ApplyTheme(ElementTheme.Dark, "深色");
 
+    /// <summary>
+    /// Applies the theme to the whole content root and remembers the choice. The window background is a
+    /// theme resource, so a dark theme really darkens the page instead of leaving light text on a light
+    /// surface.
+    /// </summary>
     private void ApplyTheme(ElementTheme theme, string label)
     {
         RootGrid.RequestedTheme = theme;
         ThemeLabel.Text = label;
+        ApplyTitleBarTheme(theme);
+        SaveTheme(label == "深色" ? "dark" : label == "浅色" ? "light" : "system");
+    }
+
+    /// <summary>
+    /// Keeps the native title bar in step with the content theme; otherwise a dark page keeps a white
+    /// title bar strip. Unsupported combinations (for example Windows 10) are ignored.
+    /// </summary>
+    private void ApplyTitleBarTheme(ElementTheme theme)
+    {
+        try
+        {
+            var titleBar = AppWindow.TitleBar;
+            if (theme == ElementTheme.Dark)
+            {
+                titleBar.BackgroundColor = Color.FromArgb(255, 32, 32, 32);
+                titleBar.ForegroundColor = Colors.White;
+                titleBar.ButtonBackgroundColor = Color.FromArgb(255, 32, 32, 32);
+                titleBar.ButtonForegroundColor = Colors.White;
+                titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 58, 58, 58);
+                titleBar.ButtonHoverForegroundColor = Colors.White;
+            }
+            else if (theme == ElementTheme.Light)
+            {
+                titleBar.BackgroundColor = Color.FromArgb(255, 243, 243, 243);
+                titleBar.ForegroundColor = Colors.Black;
+                titleBar.ButtonBackgroundColor = Color.FromArgb(255, 243, 243, 243);
+                titleBar.ButtonForegroundColor = Colors.Black;
+                titleBar.ButtonHoverBackgroundColor = Color.FromArgb(255, 229, 229, 229);
+                titleBar.ButtonHoverForegroundColor = Colors.Black;
+            }
+            else
+            {
+                titleBar.BackgroundColor = null;
+                titleBar.ForegroundColor = null;
+                titleBar.ButtonBackgroundColor = null;
+                titleBar.ButtonForegroundColor = null;
+                titleBar.ButtonHoverBackgroundColor = null;
+                titleBar.ButtonHoverForegroundColor = null;
+            }
+        }
+        catch (Exception)
+        {
+            // Title bar customisation is a cosmetic extra; never let it break the window.
+        }
+    }
+
+    private void ApplySavedTheme()
+    {
+        var value = "system";
+        try
+        {
+            if (File.Exists(ThemeStatePath))
+            {
+                value = File.ReadAllText(ThemeStatePath).Trim().ToLowerInvariant();
+            }
+        }
+        catch (IOException)
+        {
+        }
+
+        switch (value)
+        {
+            case "dark":
+                ThemeDark.IsChecked = true;
+                ApplyTheme(ElementTheme.Dark, "深色");
+                break;
+            case "light":
+                ThemeLight.IsChecked = true;
+                ApplyTheme(ElementTheme.Light, "浅色");
+                break;
+            default:
+                ThemeSystem.IsChecked = true;
+                ApplyTheme(ElementTheme.Default, "跟随系统");
+                break;
+        }
+    }
+
+    private static void SaveTheme(string value)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(ThemeStatePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(ThemeStatePath, value);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private void WriteHeartbeat()
