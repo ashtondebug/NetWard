@@ -10,7 +10,7 @@ namespace WebBlocker.Persistence
 {
     public sealed class AccessEventStore
     {
-        private const int CurrentSchemaVersion = 5;
+        private const int CurrentSchemaVersion = 6;
         public const int AccessEventRetentionDays = 30;
         private readonly string _connectionString;
 
@@ -126,7 +126,19 @@ namespace WebBlocker.Persistence
                 throw new ArgumentException("The current time must be UTC.", "utcNow");
             }
 
-            return PruneAccessEventsBefore(utcNow.AddDays(-AccessEventRetentionDays));
+            var cutoff = utcNow.AddDays(-AccessEventRetentionDays);
+            var deleted = PruneAccessEventsBefore(cutoff);
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+            using (var command = CreateCommand(connection, transaction,
+                "DELETE FROM RemoteAccessEvents WHERE OccurredAtUtc < @cutoffUtc;"))
+            {
+                AddParameter(command, "@cutoffUtc", cutoff.ToString("o", CultureInfo.InvariantCulture));
+                deleted += command.ExecuteNonQuery();
+                transaction.Commit();
+            }
+
+            return deleted;
         }
 
         public long SavePolicy(AccessPolicy policy)
@@ -481,6 +493,36 @@ namespace WebBlocker.Persistence
             int pageNumber,
             int pageSize)
         {
+            return QueryAccessEvents(onlyBlocked, domainContains, pageNumber, pageSize, null);
+        }
+
+        /// <summary>
+        /// Queries local access events. When <paramref name="sinceUtc"/> is supplied only events strictly
+        /// newer than it are returned, which is what the agent uses to serve synchronization requests.
+        /// </summary>
+        public AccessEventPage QueryAccessEvents(
+            bool onlyBlocked,
+            string domainContains,
+            int pageNumber,
+            int pageSize,
+            DateTime? sinceUtc)
+        {
+            return QueryAccessEvents(onlyBlocked, domainContains, pageNumber, pageSize, sinceUtc, false);
+        }
+
+        /// <summary>
+        /// Queries local access events. When <paramref name="sinceUtc"/> is supplied only events strictly
+        /// newer than it are returned. <paramref name="ascending"/> returns the oldest matching events first,
+        /// which lets a device synchronization page forward without skipping a backlog.
+        /// </summary>
+        public AccessEventPage QueryAccessEvents(
+            bool onlyBlocked,
+            string domainContains,
+            int pageNumber,
+            int pageSize,
+            DateTime? sinceUtc,
+            bool ascending)
+        {
             if (pageNumber < 1)
             {
                 throw new ArgumentOutOfRangeException("pageNumber");
@@ -491,10 +533,20 @@ namespace WebBlocker.Persistence
                 throw new ArgumentOutOfRangeException("pageSize", "Page size must be between 1 and 500.");
             }
 
+            if (sinceUtc.HasValue && sinceUtc.Value.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException("The since timestamp must be UTC.", "sinceUtc");
+            }
+
             var where = " WHERE 1 = 1 ";
             if (onlyBlocked)
             {
                 where += " AND Result <> @allowedResult ";
+            }
+
+            if (sinceUtc.HasValue)
+            {
+                where += " AND OccurredAtUtc > @sinceUtc ";
             }
 
             var normalizedSearch = string.IsNullOrWhiteSpace(domainContains)
@@ -515,6 +567,7 @@ namespace WebBlocker.Persistence
                 using (var command = CreateCommand(connection, null, "SELECT COUNT(*) FROM AccessEvents" + where + ";"))
                 {
                     BindQueryParameters(command, onlyBlocked, normalizedSearch);
+                    BindSinceParameter(command, sinceUtc);
                     totalCount = Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
                 }
 
@@ -522,10 +575,14 @@ namespace WebBlocker.Persistence
                 var offset = checked((pageNumber - 1) * pageSize);
                 using (var command = CreateCommand(connection, null,
                     "SELECT EventId, OccurredAtUtc, Domain, Method, Result, MatchedRuleId, PolicyVersion, RequestedUrl, DestinationPort " +
-                    "FROM AccessEvents" + where + " ORDER BY OccurredAtUtc DESC, EventId DESC " +
+                    "FROM AccessEvents" + where +
+                    (ascending
+                        ? " ORDER BY OccurredAtUtc ASC, EventId ASC "
+                        : " ORDER BY OccurredAtUtc DESC, EventId DESC ") +
                     "LIMIT @pageSize OFFSET @offset;"))
                 {
                     BindQueryParameters(command, onlyBlocked, normalizedSearch);
+                    BindSinceParameter(command, sinceUtc);
                     AddParameter(command, "@pageSize", pageSize);
                     AddParameter(command, "@offset", offset);
                     using (var reader = command.ExecuteReader())
@@ -986,6 +1043,142 @@ namespace WebBlocker.Persistence
             return rules;
         }
 
+        /// <summary>
+        /// Inserts events received from a paired endpoint. Duplicate (device, event) pairs are ignored so a
+        /// retried synchronization never creates duplicate audit rows, and the endpoint identity is part of
+        /// the key so devices can never overwrite each other.
+        /// </summary>
+        public int ImportRemoteEvents(string deviceId, IEnumerable<RemoteAccessEvent> events)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("A device id is required.", "deviceId");
+            }
+
+            if (events == null)
+            {
+                throw new ArgumentNullException("events");
+            }
+
+            var inserted = 0;
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+            using (var command = CreateCommand(connection, transaction,
+                "INSERT OR IGNORE INTO RemoteAccessEvents " +
+                "(DeviceId, EventId, OccurredAtUtc, Domain, Method, Result, RequestedUrl, DestinationPort, ReceivedAtUtc) " +
+                "VALUES (@deviceId, @eventId, @occurredAtUtc, @domain, @method, @result, @requestedUrl, @destinationPort, @receivedAtUtc);"))
+            {
+                var receivedAtUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+                foreach (var item in events)
+                {
+                    if (item == null)
+                    {
+                        continue;
+                    }
+
+                    if (!string.Equals(item.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ArgumentException(
+                            "Every event must belong to the device that is being imported.", "events");
+                    }
+
+                    command.Parameters.Clear();
+                    AddParameter(command, "@deviceId", item.DeviceId);
+                    AddParameter(command, "@eventId", item.EventId.ToString("D"));
+                    AddParameter(command, "@occurredAtUtc", item.OccurredAtUtc.ToString("o", CultureInfo.InvariantCulture));
+                    AddParameter(command, "@domain", item.Domain);
+                    AddParameter(command, "@method", item.Method);
+                    AddParameter(command, "@result", (int)item.Result);
+                    AddParameter(command, "@requestedUrl", (object)item.RequestedUrl ?? DBNull.Value);
+                    AddParameter(command, "@destinationPort",
+                        item.DestinationPort.HasValue ? (object)item.DestinationPort.Value : DBNull.Value);
+                    AddParameter(command, "@receivedAtUtc", receivedAtUtc);
+                    inserted += command.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+
+            return inserted;
+        }
+
+        public IList<RemoteAccessEvent> QueryRemoteEvents(string deviceId, int limit)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("A device id is required.", "deviceId");
+            }
+
+            if (limit < 1 || limit > 500)
+            {
+                throw new ArgumentOutOfRangeException("limit", "The limit must be between 1 and 500.");
+            }
+
+            var events = new List<RemoteAccessEvent>();
+            using (var connection = OpenConnection())
+            using (var command = CreateCommand(connection, null,
+                "SELECT DeviceId, EventId, OccurredAtUtc, Domain, Method, Result, RequestedUrl, DestinationPort " +
+                "FROM RemoteAccessEvents WHERE DeviceId = @deviceId " +
+                "ORDER BY OccurredAtUtc DESC, EventId DESC LIMIT @limit;"))
+            {
+                AddParameter(command, "@deviceId", deviceId.Trim());
+                AddParameter(command, "@limit", limit);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Guid eventId;
+                        if (!Guid.TryParse(reader.GetString(1), out eventId))
+                        {
+                            throw new InvalidDataException("The database contains an invalid remote event ID.");
+                        }
+
+                        DateTime occurredAtUtc;
+                        if (!DateTime.TryParseExact(reader.GetString(2), "o", CultureInfo.InvariantCulture,
+                                DateTimeStyles.RoundtripKind, out occurredAtUtc) ||
+                            occurredAtUtc.Kind != DateTimeKind.Utc)
+                        {
+                            throw new InvalidDataException("The database contains an invalid remote event timestamp.");
+                        }
+
+                        var result = reader.GetInt32(5);
+                        if (!ProxyAccessEvent.IsKnownResult((ProxyAccessResult)result))
+                        {
+                            throw new InvalidDataException("The database contains an unsupported remote access result.");
+                        }
+
+                        events.Add(new RemoteAccessEvent(
+                            reader.GetString(0),
+                            eventId,
+                            occurredAtUtc,
+                            reader.GetString(3),
+                            reader.GetString(4),
+                            (ProxyAccessResult)result,
+                            reader.IsDBNull(6) ? null : reader.GetString(6),
+                            reader.IsDBNull(7) ? (int?)null : reader.GetInt32(7)));
+                    }
+                }
+            }
+
+            return events.AsReadOnly();
+        }
+
+        public long CountRemoteEvents(string deviceId)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("A device id is required.", "deviceId");
+            }
+
+            using (var connection = OpenConnection())
+            using (var command = CreateCommand(connection, null,
+                "SELECT COUNT(*) FROM RemoteAccessEvents WHERE DeviceId = @deviceId;"))
+            {
+                AddParameter(command, "@deviceId", deviceId.Trim());
+                return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+            }
+        }
+
         private void Initialize()
         {
             using (var connection = OpenConnection())
@@ -1198,6 +1391,27 @@ namespace WebBlocker.Persistence
 
                             schemaVersion = 5;
                         }
+                        else if (schemaVersion == 5)
+                        {
+                            using (var migration = CreateCommand(connection, transaction,
+                                "CREATE TABLE RemoteAccessEvents (" +
+                                "DeviceId TEXT NOT NULL, " +
+                                "EventId TEXT NOT NULL, " +
+                                "OccurredAtUtc TEXT NOT NULL, " +
+                                "Domain TEXT NOT NULL, " +
+                                "Method TEXT NOT NULL, " +
+                                "Result INTEGER NOT NULL CHECK (Result IN (0, 1, 2, 3, 4)), " +
+                                "RequestedUrl TEXT NULL, " +
+                                "DestinationPort INTEGER NULL CHECK (DestinationPort IS NULL OR DestinationPort BETWEEN 1 AND 65535), " +
+                                "ReceivedAtUtc TEXT NOT NULL, " +
+                                "PRIMARY KEY (DeviceId, EventId));" +
+                                "CREATE INDEX IX_RemoteAccessEvents_Device_Time ON RemoteAccessEvents (DeviceId, OccurredAtUtc DESC);"))
+                            {
+                                migration.ExecuteNonQuery();
+                            }
+
+                            schemaVersion = 6;
+                        }
                         else
                         {
                             throw new InvalidDataException("No migration is available for database schema version " + schemaVersion + ".");
@@ -1250,6 +1464,14 @@ namespace WebBlocker.Persistence
         private static void AddParameter(SQLiteCommand command, string name, object value)
         {
             command.Parameters.AddWithValue(name, value);
+        }
+
+        private static void BindSinceParameter(SQLiteCommand command, DateTime? sinceUtc)
+        {
+            if (sinceUtc.HasValue)
+            {
+                AddParameter(command, "@sinceUtc", sinceUtc.Value.ToString("o", CultureInfo.InvariantCulture));
+            }
         }
 
         private static void BindQueryParameters(

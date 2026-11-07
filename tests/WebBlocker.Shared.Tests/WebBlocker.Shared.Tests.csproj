@@ -11,5 +11,6 @@
     <ProjectReference Include="..\..\src\WebBlocker.Filtering\WebBlocker.Filtering.csproj" />
     <ProjectReference Include="..\..\src\WebBlocker.Persistence\WebBlocker.Persistence.csproj" />
     <ProjectReference Include="..\..\src\WebBlocker.Shared\WebBlocker.Shared.csproj" />
+    <ProjectReference Include="..\..\src\NetWard.Lan\NetWard.Lan.csproj" />
   </ItemGroup>
 </Project>

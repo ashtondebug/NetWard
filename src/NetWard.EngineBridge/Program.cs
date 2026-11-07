@@ -40,7 +40,13 @@ namespace WebBlocker.EngineBridge
                         WritePolicy(store);
                         return 0;
                     case "events-json":
-                        WriteEvents(store, options.Limit, options.OnlyBlocked, options.Search);
+                        WriteEvents(store, options.Limit, options.OnlyBlocked, options.Search, options.SinceUtc, options.Ascending);
+                        return 0;
+                    case "import-remote-events":
+                        WriteImportRemoteEvents(store, options.DeviceId, options.InputPath);
+                        return 0;
+                    case "remote-events-json":
+                        WriteRemoteEvents(store, options.DeviceId, options.Limit);
                         return 0;
                     case "history-json":
                         WriteHistory(store);
@@ -281,13 +287,45 @@ namespace WebBlocker.EngineBridge
                     .Append("\",\"limitMinutes\":").Append(category.TimeLimitMinutes).Append('}');
             }
 
+            // Timed-access rules and blocked-content rules are part of the policy. Omitting them made a
+            // save round-trip delete every rule of that kind, so both collections are exported in full.
+            builder.Append("],\"timedRules\":[");
+            for (var index = 0; index < policy.TimedAccessRules.Count; index++)
+            {
+                if (index > 0)
+                {
+                    builder.Append(',');
+                }
+
+                var rule = policy.TimedAccessRules[index];
+                builder.Append("{\"domain\":\"").Append(Json.Escape(rule.Domain))
+                    .Append("\",\"includeSubdomains\":").Append(rule.IncludeSubdomains ? "true" : "false")
+                    .Append(",\"category\":\"").Append(Json.Escape(rule.Category))
+                    .Append("\",\"enabled\":").Append(rule.IsEnabled ? "true" : "false").Append('}');
+            }
+
+            builder.Append("],\"categoryRules\":[");
+            for (var index = 0; index < policy.CategoryRules.Count; index++)
+            {
+                if (index > 0)
+                {
+                    builder.Append(',');
+                }
+
+                var rule = policy.CategoryRules[index];
+                builder.Append("{\"domain\":\"").Append(Json.Escape(rule.Domain))
+                    .Append("\",\"includeSubdomains\":").Append(rule.IncludeSubdomains ? "true" : "false")
+                    .Append(",\"category\":\"").Append(Json.Escape(rule.Category))
+                    .Append("\",\"enabled\":").Append(rule.IsEnabled ? "true" : "false").Append('}');
+            }
+
             builder.Append("]}");
             Console.WriteLine(builder.ToString());
         }
 
-        private static void WriteEvents(AccessEventStore store, int limit, bool onlyBlocked, string search)
+        private static void WriteEvents(AccessEventStore store, int limit, bool onlyBlocked, string search, DateTime? sinceUtc, bool ascending)
         {
-            var page = store.QueryAccessEvents(onlyBlocked, search, 1, limit);
+            var page = store.QueryAccessEvents(onlyBlocked, search, 1, limit, sinceUtc, ascending);
             var builder = new StringBuilder();
             builder.Append("{\"total\":").Append(page.TotalCount).Append(",\"events\":[");
             for (var index = 0; index < page.Events.Count; index++)
@@ -298,7 +336,9 @@ namespace WebBlocker.EngineBridge
                 }
 
                 var accessEvent = page.Events[index];
-                builder.Append("{\"occurredAtUtc\":\"")
+                // The stable event id is required for idempotent synchronization between devices.
+                builder.Append("{\"id\":\"").Append(accessEvent.EventId.ToString("D"))
+                    .Append("\",\"occurredAtUtc\":\"")
                     .Append(accessEvent.OccurredAtUtc.ToString("o", CultureInfo.InvariantCulture))
                     .Append("\",\"domain\":\"").Append(Json.Escape(accessEvent.Domain))
                     .Append("\",\"method\":\"").Append(Json.Escape(accessEvent.Method))
@@ -451,6 +491,132 @@ namespace WebBlocker.EngineBridge
             var serializer = new JavaScriptSerializer();
             Console.WriteLine(serializer.Serialize(parsed));
         }
+
+        /// <summary>
+        /// Imports events pulled from a paired endpoint. The write is idempotent per (device, event id),
+        /// so a retried synchronization cannot duplicate audit rows.
+        /// </summary>
+        private static void WriteImportRemoteEvents(AccessEventStore store, string deviceId, string inputPath)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("--device <id> is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(inputPath))
+            {
+                throw new ArgumentException("--input <events.json> is required.");
+            }
+
+            var serializer = new JavaScriptSerializer();
+            var file = serializer.Deserialize<RemoteEventsFile>(File.ReadAllText(inputPath, Encoding.UTF8));
+            if (file == null || file.Events == null)
+            {
+                throw new ArgumentException("The event file has no events.");
+            }
+
+            var events = new List<RemoteAccessEvent>();
+            foreach (var item in file.Events)
+            {
+                if (item == null)
+                {
+                    continue;
+                }
+
+                Guid eventId;
+                if (!Guid.TryParse(item.Id, out eventId))
+                {
+                    throw new ArgumentException("The event file contains an invalid event id.");
+                }
+
+                DateTime occurredAtUtc;
+                if (!DateTime.TryParse(item.OccurredAtUtc, CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out occurredAtUtc))
+                {
+                    throw new ArgumentException("The event file contains an invalid event timestamp.");
+                }
+
+                if (occurredAtUtc.Kind != DateTimeKind.Utc)
+                {
+                    occurredAtUtc = occurredAtUtc.ToUniversalTime();
+                }
+
+                if (!Enum.IsDefined(typeof(ProxyAccessResult), item.Result))
+                {
+                    throw new ArgumentException("The event file contains an unsupported access result.");
+                }
+
+                events.Add(new RemoteAccessEvent(
+                    deviceId,
+                    eventId,
+                    occurredAtUtc,
+                    item.Domain,
+                    item.Method,
+                    (ProxyAccessResult)item.Result,
+                    string.IsNullOrEmpty(item.RequestedUrl) ? null : item.RequestedUrl,
+                    item.Port > 0 ? (int?)item.Port : null));
+            }
+
+            var inserted = store.ImportRemoteEvents(deviceId, events);
+            Console.WriteLine("{\"imported\":" + inserted.ToString(CultureInfo.InvariantCulture) + "}");
+        }
+
+        private static void WriteRemoteEvents(AccessEventStore store, string deviceId, int limit)
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                throw new ArgumentException("--device <id> is required.");
+            }
+
+            var events = store.QueryRemoteEvents(deviceId, limit);
+            var builder = new StringBuilder();
+            builder.Append("{\"events\":[");
+            for (var index = 0; index < events.Count; index++)
+            {
+                if (index > 0)
+                {
+                    builder.Append(',');
+                }
+
+                var item = events[index];
+                builder.Append("{\"id\":\"").Append(item.EventId.ToString("D"))
+                    .Append("\",\"occurredAtUtc\":\"").Append(item.OccurredAtUtc.ToString("o", CultureInfo.InvariantCulture))
+                    .Append("\",\"domain\":\"").Append(Json.Escape(item.Domain))
+                    .Append("\",\"method\":\"").Append(Json.Escape(item.Method))
+                    .Append("\",\"result\":").Append((int)item.Result)
+                    .Append(",\"resultText\":\"").Append(Json.Result(item.Result))
+                    .Append("\",\"requestedUrl\":\"").Append(Json.Escape(item.RequestedUrl ?? string.Empty))
+                    .Append("\",\"port\":").Append(item.DestinationPort.HasValue
+                        ? item.DestinationPort.Value.ToString(CultureInfo.InvariantCulture)
+                        : "0")
+                    .Append('}');
+            }
+
+            builder.Append("]}");
+            Console.WriteLine(builder.ToString());
+        }
+
+        private sealed class RemoteEventsFile
+        {
+            public List<RemoteEventFile> Events { get; set; }
+        }
+
+        private sealed class RemoteEventFile
+        {
+            public string Id { get; set; }
+
+            public string OccurredAtUtc { get; set; }
+
+            public string Domain { get; set; }
+
+            public string Method { get; set; }
+
+            public int Result { get; set; }
+
+            public string RequestedUrl { get; set; }
+
+            public int Port { get; set; }
+        }
         private sealed class Options
         {
             public string Command { get; private set; }
@@ -470,6 +636,12 @@ namespace WebBlocker.EngineBridge
             public bool OnlyBlocked { get; private set; }
 
             public string Search { get; private set; }
+
+            public string DeviceId { get; private set; }
+
+            public DateTime? SinceUtc { get; private set; }
+
+            public bool Ascending { get; private set; }
 
             public static Options Parse(string[] args)
             {
@@ -534,9 +706,33 @@ namespace WebBlocker.EngineBridge
                     {
                         options.OnlyBlocked = true;
                     }
+                    else if (string.Equals(argument, "--ascending", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.Ascending = true;
+                    }
                     else if (string.Equals(argument, "--search", StringComparison.OrdinalIgnoreCase))
                     {
                         options.Search = RequireValue(args, ref index, argument);
+                    }
+                    else if (string.Equals(argument, "--device", StringComparison.OrdinalIgnoreCase))                    {
+                        var deviceId = RequireValue(args, ref index, argument).Trim();
+                        if (deviceId.Length == 0 || deviceId.Length > 64)
+                        {
+                            throw new ArgumentException("A device id of 1 to 64 characters is required.");
+                        }
+
+                        options.DeviceId = deviceId;
+                    }
+                    else if (string.Equals(argument, "--since", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DateTime since;
+                        if (!DateTime.TryParse(RequireValue(args, ref index, argument),
+                                CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out since))
+                        {
+                            throw new ArgumentException("--since must be an ISO-8601 UTC timestamp.");
+                        }
+
+                        options.SinceUtc = since.Kind == DateTimeKind.Utc ? since : since.ToUniversalTime();
                     }
                     else if (string.Equals(argument, "--parent-pid", StringComparison.OrdinalIgnoreCase))
                     {

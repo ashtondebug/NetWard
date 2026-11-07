@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### 局域网跨设备管理（Alpha）
+
+- Added `src/NetWard.Lan` (targets `net48` and `net9.0`): per-device self-signed identity, pairing state,
+  a mutually authenticated TLS 1.2 listener/client and a bounded one-request-per-connection JSON frame.
+- The Modern endpoint now listens on `0.0.0.0:18770`, shows a real six-digit pairing code (10-minute
+  lifetime, single use, locked after five failed attempts) and reports connection state from actual
+  authenticated sessions instead of the local heartbeat file.
+- The Modern administrator gained a 设备连接 page: pair by IP/port/code, live status, push the current
+  policy, synchronize access events and revoke a pairing. The device list is stored in
+  `%LOCALAPPDATA%\WebBlocker\lan\admin\devices.json`.
+- Trust uses certificate pinning in both directions; a changed endpoint certificate is rejected. The short
+  fingerprint is shown on both screens so an operator can detect a relay during first pairing — this is a
+  manual check and is documented as a limitation.
+- Policy push reuses the engine bridge, so remote writes get the same validation and transaction as local
+  saves, and the running proxy hot-reloads the new version.
+- SQLite schema v6 adds `RemoteAccessEvents` keyed by `(DeviceId, EventId)`. Synchronization is idempotent
+  per event, devices are isolated from each other, and the 30-day retention now prunes remote events too.
+- Fixed a silent policy-loss defect: `policy-json` omitted timed-access rules and blocked-content rules, so
+  any save from the Modern administrator rewrote the policy without them. Both collections are now
+  exported, and the administrator parses them back.
+- `events-json` now includes the stable event id and supports `--since` / `--ascending`; new bridge
+  commands `import-remote-events` and `remote-events-json` back the synchronization.
+- Test suite grew from 30 to 41 tests: real loopback TLS pairing, wrong/expired/locked codes, rejection of
+  an unpaired administrator, detection of a changed endpoint certificate, per-device event isolation and
+  idempotent import, and bridge contract tests that run the real `NetWard.EngineBridge.exe`.
+
 ### Alpha：可运行的受管会话版本
 
 - Added `NetWard.Agent`, a Legacy/WinForms endpoint console that loads the saved policy, starts the

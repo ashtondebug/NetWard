@@ -8,7 +8,7 @@
 | Modern administrator and agent edition | Native WinUI 3 UI over the shared net48 engine through a JSON bridge | Alpha: `src/NetWard.Modern` (net9/WinUI 3, Windows App SDK 2.6.4) shows real policy/categories/events and controls protection; no Modern endpoint agent yet |
 | Shared business logic and protocol contracts | UI/framework-neutral rules and versioned wire contract; reuse binaries only if compatible with both target frameworks | Domain normalization and policy evaluation currently target .NET Framework 4.8; cross-target reuse not established |
 | Network filtering | Loopback-only, explicitly configured HTTP proxy; WFP driver deferred pending feasibility gates | Proxy prototype implemented; assessment documented; no driver installed |
-| Device communication | Versioned, authenticated TLS protocol | Not implemented |
+| Device communication | Versioned, authenticated TLS protocol | Alpha: explicit pairing, mutually authenticated TLS with pinned self-signed certificates, policy push and event pull between the Modern administrator and the Modern endpoint; no protocol version negotiation, no Legacy/Modern interop test |
 | Persistence | SQLite with versioned schema, transactional policy updates, policy history/rollback, online backup, event retention, and timed-access windows | Schema v5 adds blocked-content categories and their history snapshots; local manager available; no remote synchronization |
 | Categorized-site controls | Administrator-imported Markdown lists, per-category enable switch, category evaluation before the base policy | Alpha: enforced through the explicit proxy; category match serves `violation.html` and records `BlockedByCategory`; lists are only imported, never invented |
 
@@ -71,6 +71,29 @@ The shared engine accepts normalized hostnames only:
 - Temporary authorization precedence is not implemented. Future policy evaluation must define temporary grants as narrow, device-scoped, expiring exceptions without mutating the policy mode.
 
 The enforcement adapter must separately define how IP literals and unclassifiable destinations are treated. It must fail closed in whitelist mode, surface an explicit diagnostic, and never report a successful block when the filter is unhealthy.
+
+## LAN device link (implemented Alpha slice)
+
+`src/NetWard.Lan` (targets `net48` and `net9.0`) holds everything that is not UI: device identity,
+pairing state, the TLS server, the client and the message contract. Both Modern applications reference
+it; the Legacy applications can reference the same assembly without raising their runtime floor.
+
+- **Endpoint** (`NetWard.Modern`): `AgentLanService` starts `LanServer` on `0.0.0.0:18770` and implements
+  `ILanAgentHandler`. Policies arrive as the same JSON document the local `save-policy` command accepts,
+  and are applied through the engine bridge, so remote writes use the same validation and transaction as
+  local ones. Access events are read through `events-json --since --ascending`.
+- **Administrator** (`NetWard.Modern.Administrator`): `DeviceLinkService` keeps the paired-device list in
+  `%LOCALAPPDATA%\WebBlocker\lan\admin\devices.json`, and the device page pairs, shows live status,
+  pushes the current policy and synchronizes logs.
+- **Persistence**: schema v6 adds `RemoteAccessEvents` keyed by `(DeviceId, EventId)`, so events from
+  different endpoints can never mix and a retried synchronization is idempotent. The 30-day retention
+  applies to remote events too.
+- **Failure behaviour**: every operation is one connection; a dropped link leaves no half-applied state.
+  Revocation removes the local record even when the endpoint is unreachable. Status is reported from a
+  real authenticated session, so the endpoint no longer infers "connected" from a local heartbeat file.
+
+See [protocol.md](protocol.md) for the wire format and [security.md](security.md) for the threat model,
+including the fingerprint-comparison limitation during first pairing.
 
 ## Planned components
 

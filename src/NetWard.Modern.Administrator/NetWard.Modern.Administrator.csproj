@@ -19,6 +19,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.4" />
+    <ProjectReference Include="..\NetWard.Lan\NetWard.Lan.csproj" />
     <ProjectReference Include="..\NetWard.EngineBridge\NetWard.EngineBridge.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <Target Name="CopyAlphaEngine" AfterTargets="Build">
