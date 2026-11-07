@@ -229,7 +229,7 @@ namespace WebBlocker.Shared.Tests
             using (var database = new TestDatabase())
             {
                 new AccessEventStore(database.Path);
-                AssertEqual(5, ReadSchemaVersion(database.Path));
+                AssertEqual(6, ReadSchemaVersion(database.Path));
 
                 var futureDatabasePath = Path.Combine(database.DirectoryPath, "future-schema.db");
                 var builder = new SQLiteConnectionStringBuilder
@@ -253,7 +253,7 @@ namespace WebBlocker.Shared.Tests
                 var legacyDatabasePath = Path.Combine(database.DirectoryPath, "schema-v1.db");
                 CreateVersionOneDatabase(legacyDatabasePath);
                 var migratedStore = new AccessEventStore(legacyDatabasePath);
-                AssertEqual(5, ReadSchemaVersion(legacyDatabasePath));
+                AssertEqual(6, ReadSchemaVersion(legacyDatabasePath));
                 PolicySnapshot migratedPolicy;
                 AssertTrue(migratedStore.TryLoadPolicy(out migratedPolicy));
                 AssertEqual(4L, migratedPolicy.Version);

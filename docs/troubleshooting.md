@@ -24,6 +24,24 @@ For a timed category, the first base-allowed request each local calendar day sta
 
 An allowed CONNECT tunnel does not inspect encrypted traffic. A successful proxy connection is not proof of system-wide enforcement.
 
+## LAN pairing fails
+
+1. **Timeout / cannot connect.** Both machines must be on the same network, the endpoint window must be
+   running, and inbound TCP 18770 must be allowed through Windows Firewall on the endpoint. No firewall
+   rule is created automatically; approve the prompt or add an inbound rule manually. Test with
+   `Test-NetConnection <endpoint-ip> -Port 18770`.
+2. **Pairing code rejected.** Codes last 10 minutes and are consumed by the first successful pairing.
+   After five wrong attempts the code is locked; restart the endpoint or wait for the next code cycle to
+   print a fresh one.
+3. **"被控端证书与已配对指纹不一致"**. The endpoint recreated its identity (for example someone deleted
+   `%LOCALAPPDATA%\WebBlocker\lan\agent`). Remove the device in the administrator and pair again — an
+   unexpected mismatch means the address is answering with a different device.
+4. **Port already in use.** Only one endpoint instance can bind 18770. Close the other instance; the
+   window shows "局域网监听未能启动" instead of silently running without a listener.
+
+Synchronized endpoint events are stored separately from local events, keyed by device and event id, so
+repeating "同步日志" never duplicates rows. The shared 30-day retention applies to them as well.
+
 ## Windows 7 behavior
 
 Windows 7 compatibility is unverified and is a target only for the Legacy edition. The planned Modern edition has a separately determined Windows floor. Consult [compatibility.md](compatibility.md); do not infer support from a successful build on another Windows version.

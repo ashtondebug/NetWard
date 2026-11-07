@@ -45,9 +45,15 @@ The detailed, stable product contract is in [product requirements and implementa
 
 ### 3. Authenticated agent/administrator communication
 
-- [ ] Implement owner-consented pairing, device identity, authenticated transport, authorization, protocol versioning, replay/idempotency handling, and revocation.
-- [ ] Synchronize policies and audit records with explicit acknowledgements and online/offline state.
-- [ ] Add monitoring, retries, recovery, and security tests before enabling remote management.
+- [x] Owner-consented pairing, per-device identity, authenticated transport (mutual TLS with pinned
+      self-signed certificates), request-id based idempotency and revocation. (Alpha: `NetWard.Lan`,
+      Modern administrator ↔ Modern endpoint only.)
+- [x] Synchronize policy and audit records between a paired pair of devices. (Alpha: push/pull on demand,
+      no offline queue; the endpoint applies policy through the same engine as a local save.)
+- [ ] Protocol version negotiation and explicit rejection of unsupported combinations.
+- [ ] Administrator account authentication, actor-attributed audit of policy changes, and a revocation list.
+- [ ] Retry/backoff, offline backlog, monitoring and a mixed Legacy/Modern compatibility matrix.
+- [ ] Independent security review of the LAN listener before using it outside an authorized test lab.
 
 ### 4. Access requests and administrator notifications
 

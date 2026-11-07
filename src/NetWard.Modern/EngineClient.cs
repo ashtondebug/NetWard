@@ -30,6 +30,12 @@ public sealed class EngineClient
 
     public bool IsAvailable => File.Exists(_bridgePath);
 
+    /// <summary>Runs an arbitrary bridge command and returns its standard output.</summary>
+    public Task<string> ExecuteAsync(params string[] arguments)
+    {
+        return RunAsync(arguments);
+    }
+
     public async Task<PolicySummary> GetPolicyAsync()
     {
         var summary = new PolicySummary();

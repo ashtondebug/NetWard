@@ -34,6 +34,7 @@
                 <NavigationViewItem Content="限时访问" Tag="timed" Icon="Clock" />
                 <NavigationViewItem Content="分类管控" Tag="categories" Icon="Filter" />
                 <NavigationViewItem Content="访问申请" Tag="requests" Icon="Mail" />
+                <NavigationViewItem Content="设备连接" Tag="devices" Icon="Link" />
                 <NavigationViewItem Content="访问日志" Tag="logs" Icon="List" />
                 <NavigationViewItem Content="策略历史" Tag="history" Icon="Document" />
             </NavigationView.MenuItems>
@@ -407,6 +408,59 @@
                                             <TextBlock Grid.Column="1" Text="{Binding Host}" Style="{StaticResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Grid.Column="2" Text="{Binding Reason}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Grid.Column="3" Text="{Binding StatusText}" Style="{StaticResource CaptionTextBlockStyle}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Border>
+                    </Grid>
+
+                    <!-- 设备连接 -->
+                    <Grid x:Name="DevicesPage" Visibility="Collapsed" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="16">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="局域网设备配对" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Text="在被控端窗口查看本机 IP、端口与配对码。配对使用双向 TLS 证书固定：首次配对后只接受该被控端的证书，其他设备无法冒充。配对码 10 分钟内有效且使用一次后立即失效。" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="240" />
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="DeviceAddressBox" PlaceholderText="被控端 IP，例如 192.168.1.20" />
+                                    <NumberBox x:Name="DevicePortBox" Grid.Column="1" Value="18770" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Compact" />
+                                    <TextBox x:Name="PairingCodeBox" Grid.Column="2" PlaceholderText="配对码" MaxLength="6" />
+                                    <Button Grid.Column="3" Content="配对" Style="{StaticResource AccentButtonStyle}" Click="PairDevice_Click" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="刷新状态" Click="RefreshDevices_Click" />
+                                    <Button Content="下发当前策略" Click="PushPolicy_Click" />
+                                    <Button Content="同步日志" Click="SyncDeviceEvents_Click" />
+                                    <Button Content="解除配对" Click="UnpairDevice_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="DeviceSyncHint" Text="选中设备后可下发当前策略或同步日志；日志按设备隔离保存到本地审计库。" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="8">
+                            <ListView x:Name="DeviceList" SelectionMode="Single">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnSpacing="12" Padding="8,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="200" />
+                                                <ColumnDefinition Width="200" />
+                                                <ColumnDefinition Width="100" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Address}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBlock Grid.Column="2" Text="{Binding StatusText}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{Binding StatusBrush}" />
+                                            <TextBlock Grid.Column="3" Text="{Binding Detail}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                         </Grid>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>

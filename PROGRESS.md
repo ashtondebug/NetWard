@@ -5,6 +5,112 @@
 
 ---
 
+## 本次会话（2026-11-06）：局域网跨设备管理
+
+### 环境（本机，已实测）
+
+- 本机为 Windows 11 Pro 26300 x64，已装 .NET Framework 4.8.10008，但**没有** .NET SDK / Visual Studio /
+  Windows App Runtime，PATH 中也没有 git。
+- 用官方 MinGit 2.56.0 portable 克隆仓库；用官方 `dotnet-sdk-9.0.320-win-x64.zip` 把 SDK 解压到
+  `D:\dev_github\.tools\dotnet`（仓库外、用户级、不改 PATH、不写注册表）。
+- 构建：`dotnet build .\NetWard.sln -c Release` → **0 警告 0 错误**（11 个工程）。
+- 测试基线（改动前）：30 项全通过。
+
+### 本轮完成
+
+**新增 `src/NetWard.Lan`（net48 + net9.0）**
+
+- `DeviceIdentity`：自签名 RSA-2048 证书（serverAuth + clientAuth），稳定 DeviceId，短指纹（4×4 hex）。
+- `AgentLanStore`：配对码（6 位、10 分钟、单次使用、5 次错误锁定）与已配对管理端（证书指纹）。
+- `LanServer` / `LanClient`：TLS 1.2 双向证书；每次操作一条连接、一条换行分隔 JSON；单帧 512 KiB；
+  握手 15 秒、请求 60 秒超时；最多 16 并发；`pair`/`push-policy`/`unpair` 按 RequestId 幂等缓存。
+- `DeviceStore`：管理端设备列表 `devices.json`（原子替换写入）。
+
+**被控端 `NetWard.Modern`**
+
+- 新增 `AgentLanService`：持有身份、配对状态、监听器；策略写入与事件读取全部经 `NetWard.EngineBridge`，
+  与本地保存走同一套校验和事务。
+- 主窗口改为显示真实设备 ID、端口、配对码、两端指纹、已配对管理端数量与最近一次通信结果；
+  「连接状态」不再依赖本地心跳文件。
+
+**管理端 `NetWard.Modern.Administrator`**
+
+- 新增「设备连接」页：按 IP + 端口 + 配对码配对；刷新状态（策略版本/规则/类别/事件数）；下发当前策略；
+  同步日志；解除配对（带确认对话框）。
+- 新增 `DeviceLinkService`：配对、状态、下发、增量同步（按 `SinceUtc` 升序分页，每页 200，最多 10 页）、
+  撤销；设备记录写入 `%LOCALAPPDATA%\WebBlocker\lan\admin\devices.json`。
+
+**持久化 schema v6**
+
+- 新增 `RemoteAccessEvents(DeviceId, EventId, ...)`，主键 `(DeviceId, EventId)`，与本地事件表分离；
+  30 天留存同时清理远端事件；v5→v6 事务迁移。
+
+**引擎桥**
+
+- `policy-json` 补齐 `timedRules` 与 `categoryRules`（修复：此前 Modern 管理端保存会静默删除这两类规则）。
+- `events-json` 增加 `id` 字段与 `--since` / `--ascending`。
+- 新增 `import-remote-events`、`remote-events-json`。
+
+### 验证记录（本机实测）
+
+- `dotnet build .\NetWard.sln -c Release` → 0 警告 0 错误，包含两个 WinUI 工程。
+- `tests\WebBlocker.Shared.Tests\bin\Release\net48\WebBlocker.Shared.Tests.exe` → **41 项全通过**。新增 11 项：
+  1. 设备身份在重启后保持稳定；
+  2. 配对码单次使用且会过期；
+  3. 连续 5 次错误后锁定，锁定后正确码也不再有效；
+  4. 已配对管理端可读状态、下发策略（载荷原样送达）、拉取事件（真实 TLS 回环）；
+  5. 未配对管理端被拒绝；
+  6. 被控端证书变化后被指纹固定拒绝；
+  7. 设备列表落盘往返（含中文名称）；
+  8. 远端事件按设备隔离且导入幂等；
+  9. 远端事件共享 30 天留存；
+  10. 桥 `save-policy` → `policy-json` 往返保留限时规则与分类规则（调用真实 exe）；
+  11. 桥 `import-remote-events` 幂等且按设备隔离（调用真实 exe）。
+- **未验证**：两个 WinUI 窗口的真实交互与两端真机配对。本机没有 Windows App Runtime；用
+  `-p:WindowsAppSDKSelfContained=true` 自包含发布后启动，进程未进入主窗口（无日志、无监听、无数据目录），
+  因此 UI 侧只做到编译验证。局域网层与桥的契约由上述回环测试覆盖。
+
+### 运行验证（本机回环，2026-11-06 22:00）
+
+- 用自包含发布（`-r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true`）生成两个可运行目录，
+  以 WMI 方式启动，被控端与管理端窗口均正常显示，被控端监听 `0.0.0.0:18770`。
+- 冒烟客户端对**运行中的真实被控端**执行完整链路：
+  `PAIR ok（SEED / 01baf809…） → STATUS v0 → PUSH v1 rules=1 → EVENTS 0 → UNPAIR ok`；
+  随后用桥读被控端数据库得到 `{"version":1,"mode":"BlockList","rules":["blocked.example.test"]}`，
+  证明「管理端下发 → 桥 save-policy → 数据库」这一段是真实生效的。
+- 运行中发现并修复两个测试发现不了的缺陷：
+  1. **net9 侧证书用 `EphemeralKeySet` 加载，Schannel 服务端握手被对端中途关闭**（net48 测试覆盖不到）。
+     改为持久化密钥集（`Exportable`）后握手成功，已复测通过。
+  2. **设备 IP 取第一个非回环 IPv4**，在装有 TUN 适配器的机器上显示 `28.0.0.1`（管理端不可达）。
+     改为优先私有网段（10/8、172.16–31、192.168/16），本机现显示 `192.168.153.171`。
+- 1280×720 屏幕上窗口实际为 867×600，已把「配对码」卡片移到首屏最上方，保证配对码可见。
+
+### 已知边界（不得夸大）
+
+- 仅限同一局域网；无协议版本协商、无跨版本（Legacy × Modern）配对测试。
+- 首次配对存在主动中继风险，只能靠两端人工比对指纹发现；证书私钥未加密存放在用户配置目录。
+- 没有管理员账号体系：能运行管理端即等于拥有管理权限。
+- 被控端离线时管理端操作直接失败并提示，没有重试队列或离线缓存。
+- 管理端拉取事件的 `SinceUtc` 基于被控端事件时间；若被控端系统时钟回拨，可能漏取。
+
+### 待办
+
+- [ ] 协议版本字段与不兼容时的明确拒绝。
+- [ ] 管理员账号/口令与操作审计（谁下发了哪一版策略）。
+- [ ] 被控端离线时的重试与积压（当前为同步请求-响应）。
+- [ ] Legacy（WinForms）端接入同一 `NetWard.Lan`。
+- [ ] 安装包与防火墙规则的显式说明（当前手动放行）。
+
+### 提交与推送
+
+- 提交 `689dada`（38 个文件，+4586/−112），作者 `3858794852 <3858794852@qq.com>`。
+- 直接推送被拒（HTTP 403：凭据属于 `fairy-B`，对 `ashtondebug/NetWard` 没有写权限），
+  因此改为 fork `fairy-B/NetWard` 的分支 `lan-pairing`，并提交 PR：
+  [ashtondebug/NetWard#1](https://github.com/ashtondebug/NetWard/pull/1)。
+- 合并前仍需在两台真实机器上完成一次「管理端 UI 配对 → 下发 → 同步日志」的验证。
+
+---
+
 ## 当前阶段：Alpha 已交付（2026-11-01）
 
 ### 本轮结论

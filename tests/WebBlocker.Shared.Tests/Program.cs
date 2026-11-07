@@ -56,6 +56,29 @@ namespace WebBlocker.Shared.Tests
             RunAsync("an active CONNECT tunnel closes at timed-window expiry",
                 ProxyIntegrationTests.TimedConnectTunnelClosesAtExpiryAsync).GetAwaiter().GetResult();
 
+            RunAsync("LAN device identity is stable across reloads",
+                LanTests.IdentityIsStableAcrossReloadsAsync).GetAwaiter().GetResult();
+            RunAsync("LAN pairing code is single use and expires",
+                LanTests.PairingCodeIsSingleUseAndExpiresAsync).GetAwaiter().GetResult();
+            RunAsync("LAN pairing code locks after five wrong attempts",
+                LanTests.WrongPairingCodeLocksAfterFiveAttemptsAsync).GetAwaiter().GetResult();
+            RunAsync("paired administrator reads status, pushes policy and pulls events over TLS",
+                LanTests.PairingThenStatusPolicyAndEventsWorkAsync).GetAwaiter().GetResult();
+            RunAsync("an administrator that never paired is rejected",
+                LanTests.UnpairedAdministratorIsRejectedAsync).GetAwaiter().GetResult();
+            RunAsync("a changed endpoint certificate is rejected by the pinned thumbprint",
+                LanTests.ChangedEndpointCertificateIsRejectedAsync).GetAwaiter().GetResult();
+            RunAsync("the administrator device list round-trips",
+                LanTests.DeviceStoreRoundTripsAsync).GetAwaiter().GetResult();
+            RunAsync("remote audit events are isolated per device and imported idempotently",
+                RemoteEventTests.RemoteEventsAreIsolatedPerDeviceAndImportIsIdempotentAsync).GetAwaiter().GetResult();
+            RunAsync("remote audit events share the 30-day retention window",
+                RemoteEventTests.RemoteEventsShareTheThirtyDayRetentionAsync).GetAwaiter().GetResult();
+            RunAsync("engine bridge policy round trip keeps timed and category rules",
+                BridgeContractTests.PolicyRoundTripKeepsTimedAndCategoryRulesAsync).GetAwaiter().GetResult();
+            RunAsync("engine bridge remote event import is idempotent and per device",
+                BridgeContractTests.RemoteEventImportIsIdempotentAndPerDeviceAsync).GetAwaiter().GetResult();
+
             Console.WriteLine("{0} tests passed; {1} failed.", _passed, _failed);
             return Environment.ExitCode;
         }

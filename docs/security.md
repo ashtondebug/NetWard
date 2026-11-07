@@ -29,6 +29,37 @@ There is currently no administrator authentication, device pairing, authenticate
 
 These are design requirements, not implemented controls.
 
+## LAN link security state
+
+The Modern endpoint listens on `0.0.0.0:18770` while it runs. This is a **network exposure change**
+compared with the loopback-only proxy, and it is limited to devices on the same network that can reach
+that port.
+
+- Transport is TLS 1.2 with mutual certificate authentication. Each device creates a self-signed
+  RSA-2048 certificate on first run; there is no certificate authority.
+- Trust is established only by pairing: the administrator pins the endpoint's certificate thumbprint and
+  the endpoint pins the administrator's. A changed certificate is rejected (`unauthorized`).
+- The six-digit pairing code is valid for 10 minutes, is consumed by one successful pairing, and locks
+  after five wrong attempts. It is an enrolment secret, not a long-term key.
+- An active man-in-the-middle during the first pairing could relay the code and present its own
+  certificate. The protocol makes that visible by returning both a thumbprint and a short fingerprint,
+  and the administrator screen shows the endpoint fingerprint after pairing; **comparing the two
+  screens is the only defense and is not automated**. Do not pair over an untrusted network.
+- Certificate private keys are stored unencrypted in the user profile
+  (`%LOCALAPPDATA%\WebBlocker\lan\{agent,admin}\identity.pfx`), in the same risk class as `https-ca.pfx`.
+  Any process running as that user can read them.
+- There is no administrator password or role model: possession of the administrator device profile is
+  the credential. Anyone who can run the administrator application on that profile can push policy to
+  every paired endpoint and read the synchronized audit records.
+- No firewall rule is created automatically (that would require elevation). The operator must allow the
+  application through Windows Firewall for inbound TCP 18770, or pairing and all later sessions fail.
+- The listener is not a multi-user boundary: local processes can connect to it, although they still
+  need a paired client certificate to do anything.
+
+Planned before this link is used outside an authorized test lab: administrator account authentication,
+protocol version negotiation, audited revocation, replay protection beyond request-id deduplication,
+and a compatibility matrix for mixed Legacy/Modern pairing.
+
 ## Filtering-specific constraints
 
 The proxy is a user-mode path. The Modern agent explicitly configures the current user system proxy and a local CA; applications can still bypass it (direct sockets, other proxies, VPN, DoH, QUIC). Do not add WFP drivers, firewall rules, DNS/hosts changes, or machine-wide policies without a separately reviewed plan and explicit authorization.

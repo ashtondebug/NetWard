@@ -17,28 +17,12 @@
                 <InfoBar x:Name="StatusBar" IsOpen="True" IsClosable="False" Severity="Informational" Title="未连接" Message="等待管理端连接；本地拦截策略保持运行。" />
                 <InfoBar x:Name="FallbackBar" IsOpen="False" IsClosable="False" Severity="Warning" Title="已切换到本地拦截策略" Message="与管理端的连接已断开；本机继续按最后保存的策略执行拦截。" />
 
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="14">
-                    <Grid ColumnSpacing="16" RowSpacing="10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Text="设备名称" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock x:Name="DeviceNameText" Grid.Column="1" Text="-" Style="{StaticResource BodyStrongTextBlockStyle}" IsTextSelectionEnabled="True" />
-                        <TextBlock Grid.Row="1" Text="设备 IP" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <TextBlock x:Name="DeviceIpText" Grid.Row="1" Grid.Column="1" Text="-" Style="{StaticResource BodyTextBlockStyle}" IsTextSelectionEnabled="True" />
-                    </Grid>
-                </Border>
-
                 <Border x:Name="CodeCard" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="14">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="连接码" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Text="配对码" Style="{StaticResource BodyStrongTextBlockStyle}" />
                         <TextBlock x:Name="ConnectionCodeText" Text="------" FontFamily="Consolas" FontSize="28" FontWeight="SemiBold" IsTextSelectionEnabled="True" />
-                        <TextBlock Text="首次运行时显示；用于后续远程配对。" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="在管理端「设备连接」页输入本机 IP、端口与该配对码完成配对。配对码 10 分钟内有效，使用一次后立即失效。" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LanStateText" Text="局域网监听未启动" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
 
@@ -52,6 +36,30 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="设备名称" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DeviceNameText" Grid.Column="1" Text="-" Style="{StaticResource BodyStrongTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        <TextBlock Grid.Row="1" Text="设备 IP" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DeviceIpText" Grid.Row="1" Grid.Column="1" Text="-" Style="{StaticResource BodyTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        <TextBlock Grid.Row="2" Text="设备 ID" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="DeviceIdText" Grid.Row="2" Grid.Column="1" Text="-" Style="{StaticResource CaptionTextBlockStyle}" IsTextSelectionEnabled="True" />
+                        <TextBlock Grid.Row="3" Text="局域网端口" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="LanPortText" Grid.Row="3" Grid.Column="1" Text="-" Style="{StaticResource BodyTextBlockStyle}" />
+                    </Grid>
+                </Border>
+
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="14">
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock Text="连接状态" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <TextBlock x:Name="ConnectionStateText" Grid.Column="1" Text="未连接" Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -59,12 +67,12 @@
                         <TextBlock Grid.Row="2" Text="管理状态" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <TextBlock x:Name="ManagementStateText" Grid.Row="2" Grid.Column="1" Text="等待管理端" Style="{StaticResource BodyTextBlockStyle}" />
                         <TextBlock x:Name="UptimeText" Grid.Row="1" Grid.Column="1" Text="--:--:--" Style="{StaticResource BodyTextBlockStyle}" />
+                        <TextBlock Grid.Row="3" Text="最近通信" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock x:Name="SessionText" Grid.Row="3" Grid.Column="1" Text="尚无管理端通信" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
 
                 <TextBlock x:Name="PolicyText" Text="正在读取本机策略…" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-
-
             </StackPanel>
         </ScrollViewer>
     </Grid>

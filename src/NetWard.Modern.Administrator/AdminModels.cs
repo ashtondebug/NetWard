@@ -99,3 +99,14 @@ public sealed class AdminAccessRequest
     public string TimeText { get; set; }
     public string StatusText { get; set; }
 }
+
+/// <summary>Row shown in the device page; <see cref="Device"/> is the persisted pairing record.</summary>
+public sealed class AdminDeviceRow
+{
+    public NetWard.Lan.PairedDevice Device { get; set; }
+    public string Name { get; set; }
+    public string Address { get; set; }
+    public string StatusText { get; set; }
+    public string Detail { get; set; }
+    public Brush StatusBrush { get; set; }
+}

@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Diagnostics;
+using Microsoft.UI;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,6 +21,7 @@ namespace NetWard.Modern.Administrator;
 public sealed partial class MainWindow : Window
 {
     private readonly AdminEngineClient _client;
+    private readonly DeviceLinkService _deviceLink;
     private readonly Dictionary<string, FrameworkElement> _pages;
     private AdminPolicy _policy = new();
     private bool _dirty;
@@ -45,6 +48,7 @@ public sealed partial class MainWindow : Window
             "WebBlocker",
             "proxy.db");
         _client = new AdminEngineClient(databasePath);
+        _deviceLink = new DeviceLinkService(_client);
 
         _pages = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal)
         {
@@ -53,6 +57,7 @@ public sealed partial class MainWindow : Window
             ["timed"] = TimedPage,
             ["categories"] = CategoriesPage,
             ["requests"] = RequestsPage,
+            ["devices"] = DevicesPage,
             ["logs"] = LogsPage,
             ["history"] = HistoryPage
         };
@@ -75,6 +80,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _heartbeatTimer.Stop();
+            _deviceLink.Dispose();
             try
             {
                 File.Delete(HeartbeatPath);
@@ -569,6 +575,164 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void PairDevice_Click(object sender, RoutedEventArgs e)
+    {
+        var address = (DeviceAddressBox.Text ?? string.Empty).Trim();
+        var code = (PairingCodeBox.Text ?? string.Empty).Trim();
+        var port = double.IsNaN(DevicePortBox.Value) ? 18770 : (int)DevicePortBox.Value;
+        if (address.Length == 0 || code.Length == 0)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请填写被控端 IP 与配对码。");
+            return;
+        }
+
+        try
+        {
+            SetInfoBar(InfoBarSeverity.Informational, "正在与被控端建立安全连接并配对…");
+            var device = await Task.Run(() => _deviceLink.Pair(address, port, code));
+            PairingCodeBox.Text = string.Empty;
+            SetInfoBar(InfoBarSeverity.Success,
+                "已与被控端「" + device.Name + "」配对。请核对两端指纹一致：" + device.Fingerprint);
+            await RefreshDevicesAsync();
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "配对失败：" + exception.Message);
+        }
+    }
+
+    private async void RefreshDevices_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshDevicesAsync();
+    }
+
+    private async Task RefreshDevicesAsync()
+    {
+        var stored = _deviceLink.LoadDevices();
+        var rows = new List<AdminDeviceRow>();
+        foreach (var device in stored)
+        {
+            rows.Add(new AdminDeviceRow
+            {
+                Device = device,
+                Name = string.IsNullOrEmpty(device.Name) ? device.DeviceId : device.Name,
+                Address = device.Address + ":" + device.Port,
+                StatusText = "检测中…",
+                Detail = "指纹 " + device.Fingerprint,
+                StatusBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 88, 103, 125))
+            });
+        }
+
+        DeviceList.ItemsSource = rows;
+
+        foreach (var row in rows)
+        {
+            var device = row.Device;
+            try
+            {
+                var status = await Task.Run(() => _deviceLink.RefreshStatus(device));
+                row.StatusText = "在线";
+                row.StatusBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 15, 123, 15));
+                row.Detail = "策略 v" + status.PolicyVersion + " · " + status.Rules + " 条规则 · " +
+                             status.Categories + " 个类别 · 事件 " + status.Events + " · 已配对管理端 " + status.PairedAdmins;
+            }
+            catch (Exception exception)
+            {
+                row.StatusText = "离线";
+                row.StatusBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 157, 93, 0));
+                row.Detail = exception.Message;
+            }
+        }
+
+        DeviceList.ItemsSource = null;
+        DeviceList.ItemsSource = rows;
+        DeviceSyncHint.Text = "共 " + rows.Count + " 台已配对设备。日志按设备隔离保存到本地审计库。";
+    }
+
+    private async void PushPolicy_Click(object sender, RoutedEventArgs e)
+    {
+        if (DeviceList.SelectedItem is not AdminDeviceRow row)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先在列表中选择一台被控端。");
+            return;
+        }
+
+        if (!_policy.HasPolicy)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "本机尚未保存策略，请先保存策略后再下发。");
+            return;
+        }
+
+        try
+        {
+            SetInfoBar(InfoBarSeverity.Informational, "正在向「" + row.Name + "」下发当前策略…");
+            var version = await Task.Run(() => _deviceLink.PushPolicy(row.Device, _policy));
+            SetInfoBar(InfoBarSeverity.Success,
+                "已下发到「" + row.Name + "」，被控端策略版本 " + version + "；被控端代理会在 1 秒内热加载。");
+            await RefreshDevicesAsync();
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "下发失败：" + exception.Message);
+        }
+    }
+
+    private async void SyncDeviceEvents_Click(object sender, RoutedEventArgs e)
+    {
+        if (DeviceList.SelectedItem is not AdminDeviceRow row)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先在列表中选择一台被控端。");
+            return;
+        }
+
+        try
+        {
+            SetInfoBar(InfoBarSeverity.Informational, "正在同步「" + row.Name + "」的访问日志…");
+            var imported = await Task.Run(async () => await _deviceLink.SyncEventsAsync(row.Device));
+            await RefreshDevicesAsync();
+            SetInfoBar(InfoBarSeverity.Success, "已同步 " + imported + " 条新事件（重复事件会被忽略）。");
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "同步失败：" + exception.Message);
+        }
+    }
+
+    private async void UnpairDevice_Click(object sender, RoutedEventArgs e)
+    {
+        if (DeviceList.SelectedItem is not AdminDeviceRow row)
+        {
+            SetInfoBar(InfoBarSeverity.Warning, "请先在列表中选择一台被控端。");
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "解除配对",
+            Content = "解除后将无法再管理「" + row.Name + "」，需要在其窗口重新读取配对码才能再次配对。",
+            PrimaryButtonText = "解除配对",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = RootGrid.XamlRoot
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => _deviceLink.Unpair(row.Device));
+            SetInfoBar(InfoBarSeverity.Informational, "已解除与「" + row.Name + "」的配对。");
+            await RefreshDevicesAsync();
+        }
+        catch (Exception exception)
+        {
+            SetInfoBar(InfoBarSeverity.Error, "解除配对失败：" + exception.Message);
+        }
+    }
+
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string destination ||
@@ -589,12 +753,18 @@ public sealed partial class MainWindow : Window
             RefreshRequests();
         }
 
+        if (destination == "devices")
+        {
+            _ = RefreshDevicesAsync();
+        }
+
         (PageTitle.Text, PageSubtitle.Text) = destination switch
         {
             "rules" => ("网页访问规则", "白名单 / 黑名单与域名匹配规则"),
             "timed" => ("限时访问", "每日连续墙钟额度的类别与网站"),
             "categories" => ("分类管控", "从管理员审核的 Markdown 导入分类名单"),
             "requests" => ("访问申请", "来自拦截页、保存在本机的访问申请"),
+            "devices" => ("设备连接", "局域网配对、下发策略与同步日志"),
             "logs" => ("访问日志", "本地访问事件，违规记录以红色标注"),
             "history" => ("策略历史", "按版本恢复，历史只增不改"),
             _ => ("总览", "本机策略与审计（WebBlocker\\proxy.db）")

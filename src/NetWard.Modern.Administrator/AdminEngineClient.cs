@@ -62,6 +62,36 @@ public sealed class AdminEngineClient
                 });
             }
 
+            // Timed-access rules and blocked-content rules must be loaded, otherwise the next save would
+            // rewrite the policy without them and silently delete rules that other screens created.
+            if (root.TryGetProperty("timedRules", out var timedRules))
+            {
+                foreach (var item in timedRules.EnumerateArray())
+                {
+                    policy.TimedRules.Add(new AdminTimedRule
+                    {
+                        Domain = item.GetProperty("domain").GetString(),
+                        IncludeSubdomains = item.GetProperty("includeSubdomains").GetBoolean(),
+                        Category = item.GetProperty("category").GetString(),
+                        Enabled = item.GetProperty("enabled").GetBoolean()
+                    });
+                }
+            }
+
+            if (root.TryGetProperty("categoryRules", out var categoryRules))
+            {
+                foreach (var item in categoryRules.EnumerateArray())
+                {
+                    policy.CategoryRules.Add(new AdminCategoryRule
+                    {
+                        Domain = item.GetProperty("domain").GetString(),
+                        IncludeSubdomains = item.GetProperty("includeSubdomains").GetBoolean(),
+                        Category = item.GetProperty("category").GetString(),
+                        Enabled = item.GetProperty("enabled").GetBoolean()
+                    });
+                }
+            }
+
             foreach (var item in root.GetProperty("categories").EnumerateArray())
             {
                 policy.Categories.Add(new AdminCategory
@@ -78,6 +108,35 @@ public sealed class AdminEngineClient
     }
 
     public async Task<long> SavePolicyAsync(AdminPolicy policy)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "netward-policy-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(temp, BuildPolicyJson(policy), Encoding.UTF8);
+        try
+        {
+            var result = await RunAsync("save-policy", "--database", _databasePath, "--input", temp).ConfigureAwait(false);
+            using (var document = JsonDocument.Parse(result))
+            {
+                return document.RootElement.GetProperty("version").GetInt64();
+            }
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temp);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    /// <summary>
+    /// Serializes the complete policy, including timed-access rules and blocked-content rules, into the
+    /// document the engine bridge accepts. The same document is used for a local save and for pushing the
+    /// policy to a paired endpoint.
+    /// </summary>
+    public static string BuildPolicyJson(AdminPolicy policy)
     {
         var payload = new
         {
@@ -113,14 +172,21 @@ public sealed class AdminEngineClient
             payload.CategoryRules.Add(new { Domain = rule.Domain, IncludeSubdomains = rule.IncludeSubdomains, Category = rule.Category, Enabled = rule.Enabled });
         }
 
-        var temp = Path.Combine(Path.GetTempPath(), "netward-policy-" + Guid.NewGuid().ToString("N") + ".json");
-        File.WriteAllText(temp, JsonSerializer.Serialize(payload), Encoding.UTF8);
+        return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>Stores events pulled from a paired endpoint; the import is idempotent per event id.</summary>
+    public async Task<long> ImportRemoteEventsAsync(string deviceId, string eventsJson)
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "netward-events-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(temp, eventsJson, Encoding.UTF8);
         try
         {
-            var result = await RunAsync("save-policy", "--database", _databasePath, "--input", temp).ConfigureAwait(false);
+            var result = await RunAsync("import-remote-events", "--database", _databasePath,
+                "--device", deviceId, "--input", temp).ConfigureAwait(false);
             using (var document = JsonDocument.Parse(result))
             {
-                return document.RootElement.GetProperty("version").GetInt64();
+                return document.RootElement.GetProperty("imported").GetInt64();
             }
         }
         finally
@@ -133,6 +199,13 @@ public sealed class AdminEngineClient
             {
             }
         }
+    }
+
+    public async Task<List<AdminEventRow>> GetRemoteEventsAsync(string deviceId, int limit)
+    {
+        var json = await RunAsync("remote-events-json", "--database", _databasePath,
+            "--device", deviceId, "--limit", limit.ToString()).ConfigureAwait(false);
+        return ParseEventRows(json);
     }
 
     public async Task<List<AdminEventRow>> GetEventsAsync(bool onlyBlocked, string search)
@@ -150,6 +223,11 @@ public sealed class AdminEngineClient
         }
 
         var json = await RunAsync(arguments.ToArray()).ConfigureAwait(false);
+        return ParseEventRows(json);
+    }
+
+    private static List<AdminEventRow> ParseEventRows(string json)
+    {
         var rows = new List<AdminEventRow>();
         using (var document = JsonDocument.Parse(json))
         {
